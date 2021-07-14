@@ -7708,6 +7708,7 @@ product QUMRANET VIO1_BLOCK	0x1042	Virtio 1.x Storage
 product QUMRANET VIO1_CONS	0x1043	Virtio 1.x Console
 product QUMRANET VIO1_RNG	0x1044	Virtio 1.x RNG
 product QUMRANET VIO1_SCSI	0x1048	Virtio 1.x SCSI
+product QUMRANET VIO1_FS	0x1049	Virtio 1.x Virtio-FS
 product QUMRANET VIO1_GPU	0x1050	Virtio 1.x GPU
 product QUMRANET VIO1_INPUT	0x1052	Virtio 1.x Input
 

@@ -27540,6 +27540,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Virtio 1.x SCSI",
 	},
 	{
+	    PCI_VENDOR_QUMRANET, PCI_PRODUCT_QUMRANET_VIO1_FS,
+	    "Virtio 1.x Virtio-FS",
+	},
+	{
 	    PCI_VENDOR_QUMRANET, PCI_PRODUCT_QUMRANET_VIO1_GPU,
 	    "Virtio 1.x GPU",
 	},
