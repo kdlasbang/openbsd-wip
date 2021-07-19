@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_ipsp.h,v 1.201 2021/07/13 08:16:17 mvs Exp $	*/
+/*	$OpenBSD: ip_ipsp.h,v 1.203 2021/07/18 18:19:22 mvs Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr),
@@ -226,13 +226,14 @@ struct ipsec_id {
 };
 
 struct ipsec_ids {
+	LIST_ENTRY(ipsec_ids)	id_gc_list;
 	RBT_ENTRY(ipsec_ids)	id_node_id;
 	RBT_ENTRY(ipsec_ids)	id_node_flow;
 	struct ipsec_id		*id_local;
 	struct ipsec_id		*id_remote;
 	u_int32_t		id_flow;
 	int			id_refcount;
-	struct timeout		id_timeout;
+	u_int			id_gc_ttl;
 };
 RBT_HEAD(ipsec_ids_flows, ipsec_ids);
 RBT_HEAD(ipsec_ids_tree, ipsec_ids);
@@ -432,12 +433,13 @@ struct tdb_ident {
 };
 
 struct tdb_crypto {
-	u_int32_t		tc_spi;
 	union sockaddr_union	tc_dst;
-	u_int8_t		tc_proto;
+	u_int64_t		tc_rpl;
+	u_int32_t		tc_spi;
 	int			tc_protoff;
 	int			tc_skip;
 	u_int			tc_rdomain;
+	u_int8_t		tc_proto;
 };
 
 struct ipsecinit {
@@ -622,7 +624,7 @@ int	tcp_signature_tdb_output(struct mbuf *, struct tdb *, struct mbuf **,
 	  int, int);
 
 /* Replay window */
-int	checkreplaywindow(struct tdb *, u_int32_t, u_int32_t *, int);
+int	checkreplaywindow(struct tdb *, u_int64_t, u_int32_t, u_int32_t *, int);
 
 /* Packet processing */
 int	ipsp_process_packet(struct mbuf *, struct tdb *, int, int);

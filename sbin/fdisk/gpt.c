@@ -1,4 +1,4 @@
-/*	$OpenBSD: gpt.c,v 1.42 2021/07/13 15:03:34 krw Exp $	*/
+/*	$OpenBSD: gpt.c,v 1.46 2021/07/18 15:28:37 krw Exp $	*/
 /*
  * Copyright (c) 2015 Markus Muller <mmu@grummel.net>
  * Copyright (c) 2015 Kenneth R Westerback <krw@openbsd.org>
@@ -28,9 +28,10 @@
 #include <unistd.h>
 #include <uuid.h>
 
-#include "disk.h"
-#include "misc.h"
 #include "part.h"
+#include "disk.h"
+#include "mbr.h"
+#include "misc.h"
 #include "gpt.h"
 
 #ifdef DEBUG
@@ -49,7 +50,7 @@ int			  add_partition(const uint8_t *, const char *, uint64_t);
 int			  get_header(const uint64_t);
 int			  get_partition_table(void);
 int			  init_gh(void);
-int			  init_gp(const int, const uint32_t);
+int			  init_gp(const int);
 uint32_t		  crc32(const u_char *, const uint32_t);
 
 int
@@ -61,8 +62,8 @@ get_header(const uint64_t sector)
 	uint32_t		 orig_gh_csum, new_gh_csum;
 
 	secbuf = DISK_readsector(sector);
-	if (secbuf == 0)
-		return 1;
+	if (secbuf == NULL)
+		return -1;
 
 	memcpy(&gh, secbuf, sizeof(struct gpt_header));
 	free(secbuf);
@@ -70,37 +71,37 @@ get_header(const uint64_t sector)
 	if (letoh64(gh.gh_sig) != GPTSIGNATURE) {
 		DPRINTF("gpt signature: expected 0x%llx, got 0x%llx\n",
 		    GPTSIGNATURE, letoh64(gh.gh_sig));
-		return 1;
+		return -1;
 	}
 
 	if (letoh32(gh.gh_rev) != GPTREVISION) {
 		DPRINTF("gpt revision: expected 0x%x, got 0x%x\n",
 		    GPTREVISION, letoh32(gh.gh_rev));
-		return 1;
+		return -1;
 	}
 
 	if (letoh64(gh.gh_lba_self) != sector) {
 		DPRINTF("gpt self lba: expected %llu, got %llu\n",
 		    sector, letoh64(gh.gh_lba_self));
-		return 1;
+		return -1;
 	}
 
 	if (letoh32(gh.gh_size) != GPTMINHDRSIZE) {
 		DPRINTF("gpt header size: expected %u, got %u\n",
 		    GPTMINHDRSIZE, letoh32(gh.gh_size));
-		return 1;
+		return -1;
 	}
 
 	if (letoh32(gh.gh_part_size) != GPTMINPARTSIZE) {
 		DPRINTF("gpt partition size: expected %u, got %u\n",
 		    GPTMINPARTSIZE, letoh32(gh.gh_part_size));
-		return 1;
+		return -1;
 	}
 
 	if (letoh32(gh.gh_part_num) > NGPTPARTITIONS) {
 		DPRINTF("gpt partition count: expected <= %u, got %u\n",
 		    NGPTPARTITIONS, letoh32(gh.gh_part_num));
-		return 1;
+		return -1;
 	}
 
 	orig_gh_csum = gh.gh_csum;
@@ -110,7 +111,7 @@ get_header(const uint64_t sector)
 	if (letoh32(orig_gh_csum) != new_gh_csum) {
 		DPRINTF("gpt header checksum: expected 0x%x, got 0x%x\n",
 		    orig_gh_csum, new_gh_csum);
-		return 1;
+		return -1;
 	}
 
 	/* XXX Assume part_num * part_size is multiple of secsize. */
@@ -126,7 +127,7 @@ get_header(const uint64_t sector)
 	if (letoh64(gh.gh_lba_start) >= letoh64(gh.gh_lba_end)) {
 		DPRINTF("gpt first usable LBA: expected < %llu, got %llu\n",
 		    letoh64(gh.gh_lba_end), letoh64(gh.gh_lba_start));
-		return 1;
+		return -1;
 	}
 
 	if (letoh64(gh.gh_part_lba) <= letoh64(gh.gh_lba_end) &&
@@ -134,7 +135,7 @@ get_header(const uint64_t sector)
 		DPRINTF("gpt partition table start lba: expected < %llu or "
 		    "> %llu, got %llu\n", letoh64(gh.gh_lba_start),
 		    letoh64(gh.gh_lba_end), letoh64(gh.gh_part_lba));
-		return 1;
+		return -1;
 	}
 
 	partspersec = dl.d_secsize / letoh32(gh.gh_part_size);
@@ -145,7 +146,7 @@ get_header(const uint64_t sector)
 		DPRINTF("gpt partition table last LBA: expected < %llu or "
 		    "> %llu, got %llu\n", letoh64(gh.gh_lba_start),
 		    letoh64(gh.gh_lba_end), partlastlba);
-		return 1;
+		return -1;
 	}
 
 	/*
@@ -172,7 +173,7 @@ get_partition_table(void)
 	if (partspersec * letoh32(gh.gh_part_size) != dl.d_secsize) {
 		DPRINTF("gpt partition table entry invalid size. %u\n",
 		    letoh32(gh.gh_part_size));
-		return 1;
+		return -1;
 	}
 	secs = (letoh32(gh.gh_part_num) + partspersec - 1) / partspersec;
 
@@ -183,12 +184,12 @@ get_partition_table(void)
 	if (off == -1) {
 		DPRINTF("seek to gpt partition table @ sector %llu failed\n",
 		    (unsigned long long)where / dl.d_secsize);
-		return 1;
+		return -1;
 	}
 	len = read(disk.dk_fd, &gp, secs * dl.d_secsize);
 	if (len == -1 || len != secs * dl.d_secsize) {
 		DPRINTF("gpt partition table read failed.\n");
-		return 1;
+		return -1;
 	}
 
 	checksum = crc32((unsigned char *)&gp, letoh32(gh.gh_part_num) *
@@ -196,41 +197,51 @@ get_partition_table(void)
 	if (checksum != letoh32(gh.gh_part_csum)) {
 		DPRINTF("gpt partition table checksum: expected %x, got %x\n",
 		    checksum, letoh32(gh.gh_part_csum));
-		return 1;
+		return -1;
 	}
 
 	return 0;
 }
 
-void
+int
 GPT_read(const int which)
 {
-	int			valid;
+	struct mbr		mbr;
+	int			error;
+
+	error = MBR_read(0, 0, &mbr);
+	if (error == 0)
+		error = MBR_protective_mbr(&mbr);
+	if (error)
+		goto done;
 
 	switch (which) {
 	case PRIMARYGPT:
-		valid = get_header(GPTSECTOR);
+		error = get_header(GPTSECTOR);
 		break;
 	case SECONDARYGPT:
-		valid = get_header(DL_GETDSIZE(&dl) - 1);
+		error = get_header(DL_GETDSIZE(&dl) - 1);
 		break;
 	case ANYGPT:
-		valid = get_header(GPTSECTOR);
-		if (valid != 0 || get_partition_table() != 0)
-			valid = get_header(DL_GETDSIZE(&dl) - 1);
+		error = get_header(GPTSECTOR);
+		if (error != 0 || get_partition_table() != 0)
+			error = get_header(DL_GETDSIZE(&dl) - 1);
 		break;
 	default:
-		return;
+		return -1;
 	}
 
-	if (valid == 0)
-		valid = get_partition_table();
+	if (error == 0)
+		error = get_partition_table();
 
-	if (valid != 0) {
+ done:
+	if (error != 0) {
 		/* No valid GPT found. Zap any artifacts. */
 		memset(&gh, 0, sizeof(gh));
 		memset(&gp, 0, sizeof(gp));
 	}
+
+	return error;
 }
 
 void
@@ -370,7 +381,7 @@ add_partition(const uint8_t *beuuid, const char *name, uint64_t sectors)
 	if (pn != pncnt)
 		memset(&gp[pn], 0, sizeof(gp[pn]));
 	printf("unable to add %s\n", name);
-	return 1;
+	return -1;
 }
 
 int
@@ -406,7 +417,7 @@ init_gh(void)
 	uuid_create(&guid, &status);
 	if (status != uuid_s_ok) {
 		memcpy(&gh, &oldgh, sizeof(gh));
-		return 1;
+		return -1;
 	}
 
 	uuid_enc_le(&gh.gh_guid, &guid);
@@ -414,7 +425,7 @@ init_gh(void)
 }
 
 int
-init_gp(const int how, const uint32_t bootsectors)
+init_gp(const int how)
 {
 	struct gpt_partition	oldgp[NGPTPARTITIONS];
 	const uint8_t		gpt_uuid_efi_system[] = GPT_UUID_EFI_SYSTEM;
@@ -433,9 +444,9 @@ init_gp(const int how, const uint32_t bootsectors)
 	}
 
 	rslt = 0;
-	if (bootsectors > 0) {
+	if (disk.dk_bootprt.prt_ns > 0) {
 		rslt = add_partition(gpt_uuid_efi_system, "EFI System Area",
-		    bootsectors);
+		    disk.dk_bootprt.prt_ns);
 	}
 	if (rslt == 0)
 		rslt = add_partition(gpt_uuid_openbsd, "OpenBSD Area", 0);
@@ -447,14 +458,14 @@ init_gp(const int how, const uint32_t bootsectors)
 }
 
 int
-GPT_init(const int how, const uint32_t bootsectors)
+GPT_init(const int how)
 {
 	int			rslt = 0;
 
 	if (how == GHANDGP)
 		rslt = init_gh();
 	if (rslt == 0)
-		rslt = init_gp(how, bootsectors);
+		rslt = init_gp(how);
 
 	return rslt;
 }

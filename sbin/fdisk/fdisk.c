@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdisk.c,v 1.119 2021/07/12 14:06:19 krw Exp $	*/
+/*	$OpenBSD: fdisk.c,v 1.126 2021/07/18 15:28:37 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -29,8 +29,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "disk.h"
 #include "part.h"
+#include "disk.h"
 #include "mbr.h"
 #include "misc.h"
 #include "cmd.h"
@@ -42,11 +42,9 @@ static unsigned char		builtin_mbr[] = {
 #include "mbrcode.h"
 };
 
-uint32_t		b_sectors, b_offset;
-uint8_t			b_type;
 int			A_flag, y_flag;
 
-void		 parse_b(const char *, uint32_t *, uint32_t *, uint8_t *);
+void			parse_bootprt(const char *);
 
 static void
 usage(void)
@@ -72,11 +70,9 @@ main(int argc, char *argv[])
 #endif
 	ssize_t			 len;
 	int			 ch, fd, efi, error;
-	unsigned int		 bps;
 	int			 e_flag = 0, g_flag = 0, i_flag = 0, u_flag = 0;
 	int			 verbosity = TERSE;
-	int			 c_arg = 0, h_arg = 0, s_arg = 0;
-	uint32_t		 l_arg = 0;
+	int			 oflags = O_RDONLY;
 	char			*query;
 
 	while ((ch = getopt(argc, argv, "Aiegpuvf:c:h:s:l:b:y")) != -1) {
@@ -85,56 +81,54 @@ main(int argc, char *argv[])
 		switch(ch) {
 		case 'A':
 			A_flag = 1;
+			oflags = O_RDWR;
 			break;
 		case 'i':
 			i_flag = 1;
+			oflags = O_RDWR;
 			break;
 		case 'u':
 			u_flag = 1;
+			oflags = O_RDWR;
 			break;
 		case 'e':
 			e_flag = 1;
+			oflags = O_RDWR;
 			break;
 		case 'f':
 			mbrfile = optarg;
 			break;
 		case 'c':
-			c_arg = strtonum(optarg, 1, 262144, &errstr);
+			disk.dk_cylinders = strtonum(optarg, 1, 262144, &errstr);
 			if (errstr)
 				errx(1, "Cylinder argument %s [1..262144].",
 				    errstr);
-			disk.dk_cylinders = c_arg;
-			disk.dk_size = c_arg * h_arg * s_arg;
+			disk.dk_size = 0;
 			break;
 		case 'h':
-			h_arg = strtonum(optarg, 1, 256, &errstr);
+			disk.dk_heads = strtonum(optarg, 1, 256, &errstr);
 			if (errstr)
 				errx(1, "Head argument %s [1..256].", errstr);
-			disk.dk_heads = h_arg;
-			disk.dk_size = c_arg * h_arg * s_arg;
+			disk.dk_size = 0;
 			break;
 		case 's':
-			s_arg = strtonum(optarg, 1, 63, &errstr);
+			disk.dk_sectors = strtonum(optarg, 1, 63, &errstr);
 			if (errstr)
 				errx(1, "Sector argument %s [1..63].", errstr);
-			disk.dk_sectors = s_arg;
-			disk.dk_size = c_arg * h_arg * s_arg;
+			disk.dk_size = 0;
 			break;
 		case 'g':
 			g_flag = 1;
 			break;
 		case 'b':
-			parse_b(optarg, &b_sectors, &b_offset, &b_type);
+			parse_bootprt(optarg);
 			break;
 		case 'l':
-			l_arg = strtonum(optarg, BLOCKALIGNMENT, UINT32_MAX, &errstr);
+			disk.dk_size = strtonum(optarg, BLOCKALIGNMENT, UINT32_MAX, &errstr);
 			if (errstr)
 				errx(1, "Block argument %s [%u..%u].", errstr,
 				    BLOCKALIGNMENT, UINT32_MAX);
-			disk.dk_cylinders = l_arg / BLOCKALIGNMENT;
-			disk.dk_heads = 1;
-			disk.dk_sectors = BLOCKALIGNMENT;
-			disk.dk_size = l_arg;
+			disk.dk_cylinders = disk.dk_heads = disk.dk_sectors = 0;
 			break;
 		case 'y':
 			y_flag = 1;
@@ -149,55 +143,29 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	/* Argument checking */
 	if (argc != 1 || (i_flag && u_flag) ||
-	    (i_flag == 0 && g_flag) ||
-	    (b_sectors && !(i_flag || A_flag)) ||
-	    ((c_arg | h_arg | s_arg) && !(c_arg && h_arg && s_arg)) ||
-	    ((c_arg | h_arg | s_arg) && l_arg))
+	    (i_flag == 0 && g_flag))
 		usage();
 
-	disk.dk_name = argv[0];
-	DISK_open(A_flag || i_flag || u_flag || e_flag);
-	bps = DL_BLKSPERSEC(&dl);
-	if (b_sectors > 0) {
-		if (b_sectors % bps != 0)
-			b_sectors += bps - b_sectors % bps;
-		if (b_offset % bps != 0)
-			b_offset += bps - b_offset % bps;
-		b_sectors = DL_BLKTOSEC(&dl, b_sectors);
-		b_offset = DL_BLKTOSEC(&dl, b_offset);
-	}
-	if (l_arg > 0) {
-		if (l_arg % bps != 0)
-			l_arg += bps - l_arg % bps;
-		l_arg = DL_BLKTOSEC(&dl, l_arg);
-		disk.dk_cylinders = l_arg / BLOCKALIGNMENT;
-		disk.dk_heads = 1;
-		disk.dk_sectors = BLOCKALIGNMENT;
-		disk.dk_size = l_arg;
+	if ((disk.dk_cylinders || disk.dk_heads || disk.dk_sectors) &&
+	    (disk.dk_cylinders * disk.dk_heads * disk.dk_sectors == 0))
+		usage();
+
+	DISK_open(argv[0], oflags);
+	if (oflags == O_RDONLY) {
+		if (pledge("stdio", NULL) == -1)
+			err(1, "pledge");
+		USER_print_disk(verbosity);
+		goto done;
 	}
 
 	/* "proc exec" for man page display */
 	if (pledge("stdio rpath wpath disklabel proc exec", NULL) == -1)
 		err(1, "pledge");
 
-	error = MBR_read(0, &dos_mbr);
+	error = MBR_read(0, 0, &mbr);
 	if (error)
-		errx(1, "Can't read sector 0!");
-	MBR_parse(&dos_mbr, 0, 0, &mbr);
-
-	/* Get the GPT if present. Either primary or secondary is ok. */
-	efi = MBR_protective_mbr(&mbr);
-	if (efi != -1)
-		GPT_read(ANYGPT);
-
-	if (!(A_flag || i_flag || u_flag || e_flag)) {
-		if (pledge("stdio", NULL) == -1)
-			err(1, "pledge");
-		USER_print_disk(verbosity);
-		goto done;
-	}
+		errx(1, "Can't read MBR!");
 
 	/* Create initial/default MBR. */
 	if (mbrfile == NULL) {
@@ -222,20 +190,19 @@ main(int argc, char *argv[])
 
 	query = NULL;
 	if (A_flag) {
-		if (letoh64(gh.gh_sig) != GPTSIGNATURE)
+		if (GPT_read(ANYGPT))
 			errx(1, "-A requires a valid GPT");
 		else {
 			initial_mbr = mbr;	/* Keep current MBR. */
-			GPT_init(GPONLY, b_sectors);
+			GPT_init(GPONLY);
 			query = "Do you wish to write new GPT?";
 		}
 	} else if (i_flag) {
 		if (g_flag) {
 			MBR_init_GPT(&initial_mbr);
-			GPT_init(GHANDGP, b_sectors);
+			GPT_init(GHANDGP);
 			query = "Do you wish to write new GPT?";
 		} else {
-			memset(&gh, 0, sizeof(gh));
 			MBR_init(&initial_mbr);
 			query = "Do you wish to write new MBR and "
 			    "partition table?";
@@ -258,7 +225,7 @@ done:
 }
 
 void
-parse_b(const char *arg, uint32_t *blocks, uint32_t *offset, uint8_t *type)
+parse_bootprt(const char *arg)
 {
 	const char		*errstr;
 	char			*poffset, *ptype;
@@ -302,7 +269,7 @@ parse_b(const char *arg, uint32_t *blocks, uint32_t *offset, uint8_t *type)
 	partitiontype = strtol(ptype, NULL, 16);
 
  done:
-	*blocks = blockcount;
-	*offset = blockoffset;
-	*type = partitiontype;
+	disk.dk_bootprt.prt_ns = blockcount;
+	disk.dk_bootprt.prt_bs = blockoffset;
+	disk.dk_bootprt.prt_id = partitiontype;
 }

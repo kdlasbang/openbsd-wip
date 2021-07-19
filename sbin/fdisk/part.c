@@ -1,4 +1,4 @@
-/*	$OpenBSD: part.c,v 1.96 2021/07/13 22:10:20 krw Exp $	*/
+/*	$OpenBSD: part.c,v 1.100 2021/07/18 21:40:13 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -26,9 +26,9 @@
 #include <string.h>
 #include <uuid.h>
 
+#include "part.h"
 #include "disk.h"
 #include "misc.h"
-#include "part.h"
 
 int			 check_chs(const struct prt *);
 const char		*ascii_id(const int);
@@ -157,16 +157,14 @@ static const struct protected_guid {
 #endif
 
 int
-PRT_protected_guid(const struct uuid *leuuid)
+PRT_protected_guid(const struct uuid *uuid)
 {
-	struct uuid		 uuid;
 	char			*str = NULL;
 	int			 rslt;
 	unsigned int		 i;
 	uint32_t		 status;
 
-	uuid_dec_le(leuuid, &uuid);
-	uuid_to_string(&uuid, &str, &status);
+	uuid_to_string(uuid, &str, &status);
 	if (status != uuid_s_ok) {
 		rslt = 1;
 		goto done;
@@ -271,40 +269,33 @@ check_chs(const struct prt *prt)
 		(prt->prt_esect >63) ||
 		(prt->prt_ecyl > 1023) )
 	{
-		return 0;
+		return -1;
 	}
-	return 1;
+	return 0;
 }
 
 void
-PRT_make(struct prt *prt, const uint64_t lba_self, const uint64_t lba_firstembr,
+PRT_make(const struct prt *prt, const uint64_t lba_self, const uint64_t lba_firstembr,
     struct dos_partition *dp)
 {
 	uint64_t		off, t;
-	uint32_t		ecsave, scsave;
+	uint32_t		ecyl, scyl;
 
-	/* Save (and restore below) cylinder info we may fiddle with. */
-	scsave = prt->prt_scyl;
-	ecsave = prt->prt_ecyl;
+	scyl = (prt->prt_scyl > 1023) ? 1023 : prt->prt_scyl;
+	ecyl = (prt->prt_ecyl > 1023) ? 1023 : prt->prt_ecyl;
 
-	if ((prt->prt_scyl > 1023) || (prt->prt_ecyl > 1023)) {
-		prt->prt_scyl = (prt->prt_scyl > 1023)? 1023: prt->prt_scyl;
-		prt->prt_ecyl = (prt->prt_ecyl > 1023)? 1023: prt->prt_ecyl;
-	}
 	if ((prt->prt_id == DOSPTYP_EXTEND) || (prt->prt_id == DOSPTYP_EXTENDL))
 		off = lba_firstembr;
 	else
 		off = lba_self;
 
-	if (check_chs(prt)) {
+	if (check_chs(prt) == 0) {
 		dp->dp_shd = prt->prt_shead & 0xFF;
-		dp->dp_ssect = (prt->prt_ssect & 0x3F) |
-		    ((prt->prt_scyl & 0x300) >> 2);
-		dp->dp_scyl = prt->prt_scyl & 0xFF;
+		dp->dp_ssect = (prt->prt_ssect & 0x3F) | ((scyl & 0x300) >> 2);
+		dp->dp_scyl = scyl & 0xFF;
 		dp->dp_ehd = prt->prt_ehead & 0xFF;
-		dp->dp_esect = (prt->prt_esect & 0x3F) |
-		    ((prt->prt_ecyl & 0x300) >> 2);
-		dp->dp_ecyl = prt->prt_ecyl & 0xFF;
+		dp->dp_esect = (prt->prt_esect & 0x3F) | ((ecyl & 0x300) >> 2);
+		dp->dp_ecyl = ecyl & 0xFF;
 	} else {
 		memset(dp, 0xFF, sizeof(*dp));
 	}
@@ -320,9 +311,6 @@ PRT_make(struct prt *prt, const uint64_t lba_self, const uint64_t lba_firstembr,
 	else
 		t = htole64(prt->prt_ns);
 	memcpy(&dp->dp_size, &t, sizeof(uint32_t));
-
-	prt->prt_scyl = scsave;
-	prt->prt_ecyl = ecsave;
 }
 
 void

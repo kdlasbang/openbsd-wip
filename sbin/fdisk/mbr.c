@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbr.c,v 1.85 2021/07/13 15:03:34 krw Exp $	*/
+/*	$OpenBSD: mbr.c,v 1.92 2021/07/19 19:30:35 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -26,8 +26,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "disk.h"
 #include "part.h"
+#include "disk.h"
 #include "misc.h"
 #include "mbr.h"
 #include "gpt.h"
@@ -37,7 +37,7 @@ struct mbr		initial_mbr;
 static int		gpt_chk_mbr(struct dos_partition *, uint64_t);
 
 int
-MBR_protective_mbr(struct mbr *mbr)
+MBR_protective_mbr(const struct mbr *mbr)
 {
 	struct dos_partition	dp[NDOSPART], dos_partition;
 	int			i;
@@ -77,8 +77,6 @@ MBR_init_GPT(struct mbr *mbr)
 void
 MBR_init(struct mbr *mbr)
 {
-	extern uint32_t		b_sectors, b_offset;
-	extern uint8_t		b_type;
 	uint64_t		adj;
 	daddr_t			daddr;
 
@@ -134,10 +132,8 @@ MBR_init(struct mbr *mbr)
 	/* Fix up start/length fields */
 	PRT_fix_BN(&mbr->mbr_prt[3], 3);
 #else
-	if (b_sectors > 0) {
-		mbr->mbr_prt[0].prt_id = b_type;
-		mbr->mbr_prt[0].prt_bs = b_offset;
-		mbr->mbr_prt[0].prt_ns = b_sectors;
+	if (disk.dk_bootprt.prt_ns > 0) {
+		mbr->mbr_prt[0] = disk.dk_bootprt;
 		PRT_fix_CHS(&mbr->mbr_prt[0]);
 		mbr->mbr_prt[3].prt_ns += mbr->mbr_prt[3].prt_bs;
 		mbr->mbr_prt[3].prt_bs = mbr->mbr_prt[0].prt_bs + mbr->mbr_prt[0].prt_ns;
@@ -176,7 +172,7 @@ MBR_parse(const struct dos_mbr *dos_mbr, const uint64_t lba_self,
 }
 
 void
-MBR_make(struct mbr *mbr, struct dos_mbr *dos_mbr)
+MBR_make(const struct mbr *mbr, struct dos_mbr *dos_mbr)
 {
 	struct dos_partition	dos_partition;
 	int			i;
@@ -199,46 +195,46 @@ MBR_print(const struct mbr *mbr, const char *units)
 
 	DISK_printgeometry(NULL);
 
-	/* Header */
 	printf("Offset: %lld\t", (long long)mbr->mbr_lba_self);
 	printf("Signature: 0x%X\n", (int)mbr->mbr_signature);
 	PRT_print(0, NULL, units);
 
-	/* Entries */
 	for (i = 0; i < NDOSPART; i++)
 		PRT_print(i, &mbr->mbr_prt[i], units);
 }
 
 int
-MBR_read(const uint64_t sector, struct dos_mbr *dos_mbr)
+MBR_read(const uint64_t lba_self, const uint64_t lba_firstembr, struct mbr *mbr)
 {
+	struct dos_mbr		 dos_mbr;
 	char			*secbuf;
 
-	secbuf = DISK_readsector(sector);
+	secbuf = DISK_readsector(lba_self);
 	if (secbuf == NULL)
 		return -1;
 
-	memcpy(dos_mbr, secbuf, sizeof(*dos_mbr));
+	memcpy(&dos_mbr, secbuf, sizeof(dos_mbr));
 	free(secbuf);
+
+	MBR_parse(&dos_mbr, lba_self, lba_firstembr, mbr);
 
 	return 0;
 }
 
 int
-MBR_write(const uint64_t sector, const struct dos_mbr *dos_mbr)
+MBR_write(const struct mbr *mbr)
 {
+	struct dos_mbr		 dos_mbr;
 	char			*secbuf;
 
-	secbuf = DISK_readsector(sector);
+	secbuf = DISK_readsector(mbr->mbr_lba_self);
 	if (secbuf == NULL)
 		return -1;
 
-	/*
-	 * Place the new MBR at the start of the sector and
-	 * write the sector back to "disk".
-	 */
-	memcpy(secbuf, dos_mbr, sizeof(*dos_mbr));
-	DISK_writesector(secbuf, sector);
+	MBR_make(mbr, &dos_mbr);
+	memcpy(secbuf, &dos_mbr, sizeof(dos_mbr));
+
+	DISK_writesector(secbuf, mbr->mbr_lba_self);
 
 	/* Refresh in-kernel disklabel from the updated disk information. */
 	ioctl(disk.dk_fd, DIOCRLDINFO, 0);

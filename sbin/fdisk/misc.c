@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.75 2021/07/12 22:18:54 krw Exp $	*/
+/*	$OpenBSD: misc.c,v 1.78 2021/07/17 14:16:34 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -28,9 +28,9 @@
 #include <string.h>
 #include <uuid.h>
 
+#include "part.h"
 #include "disk.h"
 #include "misc.h"
-#include "part.h"
 
 struct unit_type	unit_types[] = {
 	{ "b"	, 1LL				, "Bytes"	},
@@ -55,7 +55,6 @@ unit_lookup(const char *units)
 			break;
 		i++;
 	}
-	/* default */
 	if (unit_types[i].ut_abbr == NULL)
 		return SECTORS;
 
@@ -71,7 +70,7 @@ string_from_line(char *buf, const size_t buflen)
 
 	len = getline(&line, &sz, stdin);
 	if (len == -1)
-		return 1;
+		return -1;
 
 	if (line[len - 1] == '\n')
 		line[len - 1] = '\0';

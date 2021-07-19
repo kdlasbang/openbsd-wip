@@ -1,4 +1,4 @@
-/*	$OpenBSD: user.c,v 1.63 2021/07/13 15:03:34 krw Exp $	*/
+/*	$OpenBSD: user.c,v 1.65 2021/07/18 15:28:37 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -61,7 +61,6 @@ void			ask_cmd(char **, char **);
 void
 USER_edit(const uint64_t lba_self, const uint64_t lba_firstembr)
 {
-	struct dos_mbr		 dos_mbr;
 	struct mbr		 mbr;
 	char			*cmd, *args;
 	int			 i, st, efi, error;
@@ -70,21 +69,12 @@ USER_edit(const uint64_t lba_self, const uint64_t lba_firstembr)
 	/* One level deeper */
 	editlevel += 1;
 
-	/* Read MBR & partition */
-	error = MBR_read(lba_self, &dos_mbr);
+	error = MBR_read(lba_self, lba_firstembr, &mbr);
 	if (error == -1)
 		goto done;
 
-	/* Parse the sucker */
-	MBR_parse(&dos_mbr, lba_self, lba_firstembr, &mbr);
-
-	if (editlevel == 1) {
-		memset(&gh, 0, sizeof(gh));
-		memset(&gp, 0, sizeof(gp));
-		efi = MBR_protective_mbr(&mbr);
-		if (efi != -1)
-			GPT_read(ANYGPT);
-	}
+	if (editlevel == 1)
+		GPT_read(ANYGPT);
 
 	printf("Enter 'help' for information\n");
 
@@ -143,32 +133,25 @@ done:
 void
 USER_print_disk(const int verbosity)
 {
-	struct dos_mbr		dos_mbr;
 	struct mbr		mbr;
 	uint64_t		lba_self, lba_firstembr;
-	int			i, efi, error;
+	int			i, error;
 
 	lba_self = lba_firstembr = 0;
 
 	do {
-		error = MBR_read(lba_self, &dos_mbr);
+		error = MBR_read(lba_self, lba_firstembr, &mbr);
 		if (error == -1)
 			break;
-		MBR_parse(&dos_mbr, lba_self, lba_firstembr, &mbr);
 		if (lba_self == 0) {
-			efi = MBR_protective_mbr(&mbr);
-			if (efi == -1) {
-				/* No valid 0xEE partition means no GPT. */
+			if (GPT_read(ANYGPT)) {
 				if (verbosity == VERBOSE) {
 					printf("Primary GPT:\nNot Found\n");
 					printf("\nSecondary GPT:\nNot Found\n");
 				}
 			} else if (verbosity == TERSE) {
-				/* Should already have read one of Primary/Secondary GPT. */
-				if (letoh64(gh.gh_sig) == GPTSIGNATURE) {
-					GPT_print("s", verbosity);
-					return;
-				}
+				GPT_print("s", verbosity);
+				return;
 			} else {
 				/*. Read & print both primary and secondary GPT. */
 				printf("Primary GPT:\n");
