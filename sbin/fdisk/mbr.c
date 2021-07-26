@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbr.c,v 1.92 2021/07/19 19:30:35 krw Exp $	*/
+/*	$OpenBSD: mbr.c,v 1.95 2021/07/26 13:05:14 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -21,6 +21,7 @@
 #include <sys/disklabel.h>
 #include <sys/dkio.h>
 
+#include <err.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,52 +35,13 @@
 
 struct mbr		initial_mbr;
 
-static int		gpt_chk_mbr(struct dos_partition *, uint64_t);
-
-int
-MBR_protective_mbr(const struct mbr *mbr)
-{
-	struct dos_partition	dp[NDOSPART], dos_partition;
-	int			i;
-
-	if (mbr->mbr_lba_self != 0)
-		return -1;
-
-	for (i = 0; i < NDOSPART; i++) {
-		PRT_make(&mbr->mbr_prt[i], mbr->mbr_lba_self, mbr->mbr_lba_firstembr,
-		    &dos_partition);
-		memcpy(&dp[i], &dos_partition, sizeof(dp[i]));
-	}
-
-	return gpt_chk_mbr(dp, DL_GETDSIZE(&dl));
-}
-
-void
-MBR_init_GPT(struct mbr *mbr)
-{
-	memset(&mbr->mbr_prt, 0, sizeof(mbr->mbr_prt));
-
-	/* Use whole disk, starting after MBR.
-	 *
-	 * Always set the partition size to UINT32_MAX (as MS does). EFI
-	 * firmware has been encountered that lies in unpredictable ways
-	 * about the size of the disk, thus making it impossible to boot
-	 * such devices.
-	 */
-	mbr->mbr_prt[0].prt_id = DOSPTYP_EFI;
-	mbr->mbr_prt[0].prt_bs = 1;
-	mbr->mbr_prt[0].prt_ns = UINT32_MAX;
-
-	/* Fix up start/length fields. */
-	PRT_fix_CHS(&mbr->mbr_prt[0]);
-}
-
 void
 MBR_init(struct mbr *mbr)
 {
 	uint64_t		adj;
 	daddr_t			daddr;
 
+	memset(&gmbr, 0, sizeof(gmbr));
 	memset(&gh, 0, sizeof(gh));
 	memset(&gp, 0, sizeof(gp));
 
@@ -116,7 +78,7 @@ MBR_init(struct mbr *mbr)
 	PRT_fix_BN(&mbr->mbr_prt[3], 3);
 
 #if defined(__powerpc__) || defined(__mips__)
-	/* Now fix up for the MS-DOS boot partition on PowerPC. */
+	/* Now fix up for the MS-DOS boot partition on PowerPC/MIPS. */
 	mbr->mbr_prt[0].prt_flag = DOSACTIVE;	/* Boot from dos part */
 	mbr->mbr_prt[3].prt_flag = 0;
 	mbr->mbr_prt[3].prt_ns += mbr->mbr_prt[3].prt_bs;
@@ -209,7 +171,7 @@ MBR_read(const uint64_t lba_self, const uint64_t lba_firstembr, struct mbr *mbr)
 	struct dos_mbr		 dos_mbr;
 	char			*secbuf;
 
-	secbuf = DISK_readsector(lba_self);
+	secbuf = DISK_readsectors(lba_self, 1);
 	if (secbuf == NULL)
 		return -1;
 
@@ -226,55 +188,23 @@ MBR_write(const struct mbr *mbr)
 {
 	struct dos_mbr		 dos_mbr;
 	char			*secbuf;
+	int			 rslt;
 
-	secbuf = DISK_readsector(mbr->mbr_lba_self);
+	secbuf = DISK_readsectors(mbr->mbr_lba_self, 1);
 	if (secbuf == NULL)
 		return -1;
 
 	MBR_make(mbr, &dos_mbr);
 	memcpy(secbuf, &dos_mbr, sizeof(dos_mbr));
 
-	DISK_writesector(secbuf, mbr->mbr_lba_self);
+	rslt = DISK_writesectors(secbuf, mbr->mbr_lba_self, 1);
+	free(secbuf);
+	if (rslt)
+		return -1;
 
 	/* Refresh in-kernel disklabel from the updated disk information. */
-	ioctl(disk.dk_fd, DIOCRLDINFO, 0);
-
-	free(secbuf);
+	if (ioctl(disk.dk_fd, DIOCRLDINFO, 0) == -1)
+		warn("DIOCRLDINFO");
 
 	return 0;
-}
-
-/*
- * Return the index into dp[] of the EFI GPT (0xEE) partition, or -1 if no such
- * partition exists.
- *
- * Taken from kern/subr_disk.c.
- *
- */
-int
-gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
-{
-	struct dos_partition	*dp2;
-	int			 efi, eficnt, found, i;
-	uint32_t		 psize;
-
-	found = efi = eficnt = 0;
-	for (dp2 = dp, i = 0; i < NDOSPART; i++, dp2++) {
-		if (dp2->dp_typ == DOSPTYP_UNUSED)
-			continue;
-		found++;
-		if (dp2->dp_typ != DOSPTYP_EFI)
-			continue;
-		if (letoh32(dp2->dp_start) != GPTSECTOR)
-			continue;
-		psize = letoh32(dp2->dp_size);
-		if (psize <= (dsize - GPTSECTOR) || psize == UINT32_MAX) {
-			efi = i;
-			eficnt++;
-		}
-	}
-	if (found == 1 && eficnt == 1)
-		return efi;
-
-	return -1;
 }

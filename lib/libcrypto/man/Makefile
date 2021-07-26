@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.182 2021/07/19 13:16:43 schwarze Exp $
+# $OpenBSD: Makefile,v 1.187 2021/07/26 14:03:43 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -287,21 +287,25 @@ MAN=	\
 	X509_NAME_ENTRY_get_object.3 \
 	X509_NAME_add_entry_by_txt.3 \
 	X509_NAME_get_index_by_NID.3 \
+	X509_NAME_hash.3 \
 	X509_NAME_new.3 \
 	X509_NAME_print_ex.3 \
 	X509_OBJECT_get0_X509.3 \
 	X509_PUBKEY_new.3 \
+	X509_PURPOSE_set.3 \
 	X509_REQ_new.3 \
 	X509_REVOKED_new.3 \
 	X509_SIG_new.3 \
 	X509_STORE_CTX_get_error.3 \
 	X509_STORE_CTX_get_ex_new_index.3 \
 	X509_STORE_CTX_new.3 \
+	X509_STORE_CTX_set_flags.3 \
 	X509_STORE_CTX_set_verify_cb.3 \
 	X509_STORE_load_locations.3 \
 	X509_STORE_new.3 \
 	X509_STORE_set_verify_cb_func.3 \
 	X509_STORE_set1_param.3 \
+	X509_TRUST_set.3 \
 	X509_VERIFY_PARAM_set_flags.3 \
 	X509_add1_trust_object.3 \
 	X509_check_ca.3 \
@@ -309,6 +313,7 @@ MAN=	\
 	X509_check_issued.3 \
 	X509_check_private_key.3 \
 	X509_check_purpose.3 \
+	X509_check_trust.3 \
 	X509_cmp.3 \
 	X509_cmp_time.3 \
 	X509_digest.3 \
@@ -322,6 +327,7 @@ MAN=	\
 	X509_get1_email.3 \
 	X509_keyid_set1.3 \
 	X509_new.3 \
+	X509_policy_tree_level_count.3 \
 	X509_print_ex.3 \
 	X509_sign.3 \
 	X509_signature_dump.3 \

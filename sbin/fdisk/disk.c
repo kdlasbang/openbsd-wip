@@ -1,4 +1,4 @@
-/*	$OpenBSD: disk.c,v 1.68 2021/07/19 14:30:08 krw Exp $	*/
+/*	$OpenBSD: disk.c,v 1.70 2021/07/26 13:05:14 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -47,13 +47,12 @@ DISK_open(const char *name, const int oflags)
 
 	disk.dk_name = strdup(name);
 	if (disk.dk_name == NULL)
-		err(1, "DISK_Open('%s')", name);
-
+		err(1, "dk_name");
 	disk.dk_fd = opendev(disk.dk_name, oflags, OPENDEV_PART, NULL);
 	if (disk.dk_fd == -1)
-		err(1, "%s", disk.dk_name);
+		err(1, "opendev('%s', 0x%x)", disk.dk_name, oflags);
 	if (fstat(disk.dk_fd, &st) == -1)
-		err(1, "%s", disk.dk_name);
+		err(1, "fstat('%s)", disk.dk_name);
 	if (!S_ISCHR(st.st_mode))
 		errx(1, "%s is not a character device", disk.dk_name);
 	if (ioctl(disk.dk_fd, DIOCGPDINFO, &dl) == -1)
@@ -124,26 +123,40 @@ DISK_printgeometry(const char *units)
  * The caller must free() the returned memory!
  */
 char *
-DISK_readsector(const uint64_t sector)
+DISK_readsectors(const uint64_t sector, const uint32_t count)
 {
 	char			*secbuf;
 	ssize_t			 len;
 	off_t			 off, where;
-	int			 secsize;
+	size_t			 bytes;
 
-	secsize = dl.d_secsize;
+	where = sector * dl.d_secsize;
+	bytes = count * dl.d_secsize;
 
-	where = sector * secsize;
 	off = lseek(disk.dk_fd, where, SEEK_SET);
-	if (off != where)
+	if (off == -1) {
+#ifdef DEBUG
+		warn("lseek(%lld) for read", (int64_t)where);
+#endif
 		return NULL;
+	}
 
-	secbuf = calloc(1, secsize);
+	secbuf = calloc(1, bytes);
 	if (secbuf == NULL)
 		return NULL;
 
-	len = read(disk.dk_fd, secbuf, secsize);
-	if (len == -1 || len != secsize) {
+	len = read(disk.dk_fd, secbuf, bytes);
+	if (len == -1) {
+#ifdef DEBUG
+		warn("read(%zu @ %lld)", bytes, (int64_t)where);
+#endif
+		free(secbuf);
+		return NULL;
+	}
+	if (len != (ssize_t)bytes) {
+#ifdef DEBUG
+		warnx("short read(%zu @ %lld)", bytes, (int64_t)where);
+#endif
 		free(secbuf);
 		return NULL;
 	}
@@ -152,22 +165,35 @@ DISK_readsector(const uint64_t sector)
 }
 
 int
-DISK_writesector(const char *secbuf, const uint64_t sector)
+DISK_writesectors(const char *buf, const uint64_t sector,
+    const uint32_t count)
 {
-	int			secsize;
 	ssize_t			len;
 	off_t			off, where;
+	size_t			bytes;
 
-	len = -1;
-	secsize = dl.d_secsize;
+	where = sector * dl.d_secsize;
+	bytes = count * dl.d_secsize;
 
-	where = secsize * sector;
 	off = lseek(disk.dk_fd, where, SEEK_SET);
-	if (off == where)
-		len = write(disk.dk_fd, secbuf, secsize);
+	if (off == -1) {
+#ifdef DEBUG
+		warn("lseek(%lld) for write", (int64_t)where);
+#endif
+		return -1;
+	}
 
-	if (len == -1 || len != secsize) {
-		errno = EIO;
+	len = write(disk.dk_fd, buf, bytes);
+	if (len == -1) {
+#ifdef DEBUG
+		warn("write(%zu @ %lld)", bytes, (int64_t)where);
+#endif
+		return -1;
+	}
+	if (len != (ssize_t)bytes) {
+#ifdef DEBUG
+		warnx("short write(%zu @ %lld)", bytes, (int64_t)where);
+#endif
 		return -1;
 	}
 

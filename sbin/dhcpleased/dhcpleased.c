@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpleased.c,v 1.14 2021/07/12 15:09:18 beck Exp $	*/
+/*	$OpenBSD: dhcpleased.c,v 1.18 2021/07/26 09:26:36 florian Exp $	*/
 
 /*
  * Copyright (c) 2017, 2021 Florian Obser <florian@openbsd.org>
@@ -86,9 +86,18 @@ static int	main_imsg_send_ipc_sockets(struct imsgbuf *, struct imsgbuf *);
 int		main_imsg_compose_frontend(int, int, void *, uint16_t);
 int		main_imsg_compose_engine(int, int, void *, uint16_t);
 
+#ifndef SMALL
+int		main_imsg_send_config(struct dhcpleased_conf *);
+#endif /* SMALL */
+int	main_reload(void);
+
 static struct imsgev	*iev_frontend;
 static struct imsgev	*iev_engine;
 
+#ifndef SMALL
+struct dhcpleased_conf	*main_conf;
+#endif
+char			*conffile;
 pid_t			 frontend_pid;
 pid_t			 engine_pid;
 
@@ -106,6 +115,14 @@ main_sig_handler(int sig, short event, void *arg)
 	case SIGTERM:
 	case SIGINT:
 		main_shutdown();
+	case SIGHUP:
+#ifndef SMALL
+		if (main_reload() == -1)
+			log_warnx("configuration reload failed");
+		else
+			log_debug("configuration reloaded");
+#endif /* SMALL */
+		break;
 	default:
 		fatalx("unexpected signal");
 	}
@@ -116,7 +133,7 @@ usage(void)
 {
 	extern char *__progname;
 
-	fprintf(stderr, "usage: %s [-dv] [-s socket]\n",
+	fprintf(stderr, "usage: %s [-dnv] [-f file] [-s socket]\n",
 	    __progname);
 	exit(1);
 }
@@ -124,14 +141,14 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	struct event		 ev_sigint, ev_sigterm;
+	struct event		 ev_sigint, ev_sigterm, ev_sighup;
 	int			 ch;
 	int			 debug = 0, engine_flag = 0, frontend_flag = 0;
-	int			 verbose = 0;
+	int			 verbose = 0, no_action = 0;
 	char			*saved_argv0;
 	int			 pipe_main2frontend[2];
 	int			 pipe_main2engine[2];
-	int			 frontend_routesock, rtfilter;
+	int			 frontend_routesock, rtfilter, lockfd;
 	int			 rtable_any = RTABLE_ANY;
 	char			*csock = _PATH_DHCPLEASED_SOCKET;
 #ifndef SMALL
@@ -145,7 +162,7 @@ main(int argc, char *argv[])
 	if (saved_argv0 == NULL)
 		saved_argv0 = "dhcpleased";
 
-	while ((ch = getopt(argc, argv, "dEFs:v")) != -1) {
+	while ((ch = getopt(argc, argv, "dEFf:ns:v")) != -1) {
 		switch (ch) {
 		case 'd':
 			debug = 1;
@@ -155,6 +172,12 @@ main(int argc, char *argv[])
 			break;
 		case 'F':
 			frontend_flag = 1;
+			break;
+		case 'f':
+			conffile = optarg;
+			break;
+		case 'n':
+			no_action = 1;
 			break;
 		case 's':
 			csock = optarg;
@@ -177,9 +200,27 @@ main(int argc, char *argv[])
 	else if (frontend_flag)
 		frontend(debug, verbose);
 
+#ifndef SMALL
+	/* parse config file */
+	if ((main_conf = parse_config(conffile)) == NULL)
+		exit(1);
+
+	if (no_action) {
+		if (verbose)
+			print_config(main_conf);
+		else
+			fprintf(stderr, "configuration OK\n");
+		exit(0);
+	}
+#endif /* SMALL */
+
 	/* Check for root privileges. */
 	if (geteuid())
 		errx(1, "need root privileges");
+
+	lockfd = open(_PATH_LOCKFILE, O_CREAT|O_RDWR|O_EXLOCK|O_NONBLOCK, 0600);
+	if (lockfd == -1)
+		errx(1, "already running");
 
 	/* Check for assigned daemon user */
 	if (getpwnam(DHCPLEASED_USER) == NULL)
@@ -216,10 +257,11 @@ main(int argc, char *argv[])
 	/* Setup signal handler. */
 	signal_set(&ev_sigint, SIGINT, main_sig_handler, NULL);
 	signal_set(&ev_sigterm, SIGTERM, main_sig_handler, NULL);
+	signal_set(&ev_sighup, SIGHUP, main_sig_handler, NULL);
 	signal_add(&ev_sigint, NULL);
 	signal_add(&ev_sigterm, NULL);
+	signal_add(&ev_sighup, NULL);
 	signal(SIGPIPE, SIG_IGN);
-	signal(SIGHUP, SIG_IGN);
 
 	/* Setup pipes to children. */
 
@@ -265,6 +307,13 @@ main(int argc, char *argv[])
 		warnx("control socket setup failed");
 #endif /* SMALL */
 
+	if (conffile != NULL) {
+		if (unveil(conffile, "r") == -1)
+			fatal("unveil %s", conffile);
+	} else {
+		if (unveil(_PATH_CONF_FILE, "r") == -1)
+			fatal("unveil %s", _PATH_CONF_FILE);
+	}
 	if (unveil("/dev/bpf", "rw") == -1)
 		fatal("unveil /dev/bpf");
 
@@ -284,6 +333,7 @@ main(int argc, char *argv[])
 #ifndef SMALL
 	if (control_fd != -1)
 		main_imsg_compose_frontend(IMSG_CONTROLFD, control_fd, NULL, 0);
+	main_imsg_send_config(main_conf);
 #endif /* SMALL */
 
 	main_imsg_compose_frontend(IMSG_STARTUP, -1, NULL, 0);
@@ -305,6 +355,10 @@ main_shutdown(void)
 	close(iev_frontend->ibuf.fd);
 	msgbuf_clear(&iev_engine->ibuf.w);
 	close(iev_engine->ibuf.fd);
+
+#ifndef SMALL
+	config_clear(main_conf);
+#endif /* SMALL */
 
 	log_debug("waiting for children to terminate");
 	do {
@@ -416,6 +470,12 @@ main_dispatch_frontend(int fd, short event, void *bula)
 			open_bpfsock(if_index);
 			break;
 #ifndef	SMALL
+		case IMSG_CTL_RELOAD:
+			if (main_reload() == -1)
+				log_warnx("configuration reload failed");
+			else
+				log_warnx("configuration reloaded");
+			break;
 		case IMSG_CTL_LOG_VERBOSE:
 			if (IMSG_DATA_SIZE(imsg) != sizeof(verbose))
 				fatalx("%s: IMSG_CTL_LOG_VERBOSE wrong length: "
@@ -618,6 +678,55 @@ main_imsg_send_ipc_sockets(struct imsgbuf *frontend_buf,
 	return (0);
 }
 
+#ifndef SMALL
+int
+main_reload(void)
+{
+	struct dhcpleased_conf *xconf;
+
+	if ((xconf = parse_config(conffile)) == NULL)
+		return (-1);
+
+	if (main_imsg_send_config(xconf) == -1)
+		return (-1);
+
+	merge_config(main_conf, xconf);
+
+	return (0);
+}
+
+int
+main_imsg_send_config(struct dhcpleased_conf *xconf)
+{
+	struct iface_conf	*iface_conf;
+
+	main_imsg_compose_frontend(IMSG_RECONF_CONF, -1, NULL, 0);
+	main_imsg_compose_engine(IMSG_RECONF_CONF, -1, NULL, 0);
+
+	/* Send the interface list to the frontend & engine. */
+	SIMPLEQ_FOREACH(iface_conf, &xconf->iface_list, entry) {
+		main_imsg_compose_frontend(IMSG_RECONF_IFACE, -1, iface_conf,
+		    sizeof(*iface_conf));
+		main_imsg_compose_engine(IMSG_RECONF_IFACE, -1, iface_conf,
+		    sizeof(*iface_conf));
+		main_imsg_compose_frontend(IMSG_RECONF_VC_ID, -1,
+		    iface_conf->vc_id, iface_conf->vc_id_len);
+		main_imsg_compose_engine(IMSG_RECONF_VC_ID, -1,
+		    iface_conf->vc_id, iface_conf->vc_id_len);
+		main_imsg_compose_frontend(IMSG_RECONF_C_ID, -1,
+		    iface_conf->c_id, iface_conf->c_id_len);
+		main_imsg_compose_engine(IMSG_RECONF_C_ID, -1,
+		    iface_conf->c_id, iface_conf->c_id_len);
+	}
+
+	/* Config is now complete. */
+	main_imsg_compose_frontend(IMSG_RECONF_END, -1, NULL, 0);
+	main_imsg_compose_engine(IMSG_RECONF_END, -1, NULL, 0);
+
+	return (0);
+}
+#endif /* SMALL */
+
 void
 configure_interface(struct imsg_configure_interface *imsg)
 {
@@ -688,11 +797,11 @@ configure_interface(struct imsg_configure_interface *imsg)
 		req_sin_mask->sin_len = sizeof(*req_sin_mask);
 		req_sin_mask->sin_addr.s_addr = imsg->mask.s_addr;
 		if (ioctl(ioctl_sock, SIOCAIFADDR, &ifaliasreq) == -1)
-			fatal("SIOCAIFADDR");
-
-		if (imsg->routes_len > 0)
-			configure_routes(RTM_ADD, imsg);
+			log_warn("SIOCAIFADDR");
 	}
+	if (imsg->routes_len > 0)
+		configure_routes(RTM_ADD, imsg);
+
 	req_sin_addr->sin_port = ntohs(CLIENT_PORT);
 	if ((udpsock = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
 		log_warn("socket");
@@ -1089,3 +1198,50 @@ read_lease_file(struct imsg_ifinfo *imsg_ifinfo)
 	read(fd, imsg_ifinfo->lease, sizeof(imsg_ifinfo->lease) - 1);
 	close(fd);
 }
+
+#ifndef SMALL
+void
+merge_config(struct dhcpleased_conf *conf, struct dhcpleased_conf *xconf)
+{
+	struct iface_conf	*iface_conf;
+
+	/* Remove & discard existing interfaces. */
+	while ((iface_conf = SIMPLEQ_FIRST(&conf->iface_list)) != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&conf->iface_list, entry);
+		free(iface_conf->vc_id);
+		free(iface_conf->c_id);
+		free(iface_conf);
+	}
+
+	/* Add new interfaces. */
+	SIMPLEQ_CONCAT(&conf->iface_list, &xconf->iface_list);
+
+	free(xconf);
+}
+
+struct dhcpleased_conf *
+config_new_empty(void)
+{
+	struct dhcpleased_conf	*xconf;
+
+	xconf = calloc(1, sizeof(*xconf));
+	if (xconf == NULL)
+		fatal(NULL);
+
+	SIMPLEQ_INIT(&xconf->iface_list);
+
+	return (xconf);
+}
+
+void
+config_clear(struct dhcpleased_conf *conf)
+{
+	struct dhcpleased_conf	*xconf;
+
+	/* Merge current config with an empty config. */
+	xconf = config_new_empty();
+	merge_config(conf, xconf);
+
+	free(conf);
+}
+#endif /* SMALL */

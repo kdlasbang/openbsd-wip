@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.562 2021/07/17 00:38:11 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.565 2021/07/23 05:24:02 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -111,12 +111,6 @@ int debug_flag = 0;
 int tty_flag = 0;
 
 /*
- * Flag indicating that nothing should be read from stdin.  This can be set
- * on the command line.
- */
-int stdin_null_flag = 0;
-
-/*
  * Flag indicating that the current process should be backgrounded and
  * a new mux-client launched in the foreground for ControlPersist.
  */
@@ -124,13 +118,6 @@ int need_controlpersist_detach = 0;
 
 /* Copies of flags for ControlPersist foreground mux-client */
 int ostdin_null_flag, osession_type, otty_flag, orequest_tty;
-
-/*
- * Flag indicating that ssh should fork after authentication.  This is useful
- * so that the passphrase can be entered manually, and then ssh goes to the
- * background.
- */
-int fork_after_authentication_flag = 0;
 
 /*
  * General data structure for command line options and options configurable
@@ -697,11 +684,11 @@ main(int ac, char **av)
 			options.address_family = AF_INET6;
 			break;
 		case 'n':
-			stdin_null_flag = 1;
+			options.stdin_null = 1;
 			break;
 		case 'f':
-			fork_after_authentication_flag = 1;
-			stdin_null_flag = 1;
+			options.fork_after_authentication = 1;
+			options.stdin_null = 1;
 			break;
 		case 'x':
 			options.forward_x11 = 0;
@@ -1309,7 +1296,7 @@ main(int ac, char **av)
 		fatal("Cannot execute command-line and remote command.");
 
 	/* Cannot fork to background if no command. */
-	if (fork_after_authentication_flag && sshbuf_len(command) == 0 &&
+	if (options.fork_after_authentication && sshbuf_len(command) == 0 &&
 	    options.remote_command == NULL &&
 	    options.session_type != SESSION_TYPE_NONE)
 		fatal("Cannot fork into background without a command "
@@ -1336,7 +1323,7 @@ main(int ac, char **av)
 	    (muxclient_command && muxclient_command != SSHMUX_COMMAND_PROXY))
 		tty_flag = 0;
 	/* Do not allocate a tty if stdin is not a tty. */
-	if ((!isatty(fileno(stdin)) || stdin_null_flag) &&
+	if ((!isatty(fileno(stdin)) || options.stdin_null) &&
 	    options.request_tty != REQUEST_TTY_FORCE) {
 		if (tty_flag)
 			logit("Pseudo-terminal will not be allocated because "
@@ -1643,13 +1630,6 @@ main(int ac, char **av)
 	ssh_login(ssh, &sensitive_data, host, (struct sockaddr *)&hostaddr,
 	    options.port, pw, timeout_ms, cinfo);
 
-	if (ssh_packet_connection_is_on_socket(ssh)) {
-		verbose("Authenticated to %s ([%s]:%d).", host,
-		    ssh_remote_ipaddr(ssh), ssh_remote_port(ssh));
-	} else {
-		verbose("Authenticated to %s (via proxy).", host);
-	}
-
 	/* We no longer need the private host keys.  Clear them now. */
 	if (sensitive_data.nkeys != 0) {
 		for (i = 0; i < sensitive_data.nkeys; i++) {
@@ -1713,7 +1693,7 @@ control_persist_detach(void)
 	default:
 		/* Parent: set up mux client to connect to backgrounded master */
 		debug2_f("background process is %ld", (long)pid);
-		stdin_null_flag = ostdin_null_flag;
+		options.stdin_null = ostdin_null_flag;
 		options.request_tty = orequest_tty;
 		tty_flag = otty_flag;
 		options.session_type = osession_type;
@@ -1737,7 +1717,7 @@ fork_postauth(void)
 	if (need_controlpersist_detach)
 		control_persist_detach();
 	debug("forking to background");
-	fork_after_authentication_flag = 0;
+	options.fork_after_authentication = 0;
 	if (daemon(1, 1) == -1)
 		fatal("daemon() failed: %.200s", strerror(errno));
 	if (stdfd_devnull(1, 1, !(log_is_on_stderr() && debug_flag)) == -1)
@@ -1751,7 +1731,7 @@ forwarding_success(void)
 		return;
 	if (--forward_confirms_pending == 0) {
 		debug_f("all expected forwarding replies received");
-		if (fork_after_authentication_flag)
+		if (options.fork_after_authentication)
 			fork_postauth();
 	} else {
 		debug2_f("%d expected forwarding replies remaining",
@@ -2054,7 +2034,7 @@ ssh_session2_open(struct ssh *ssh)
 	Channel *c;
 	int window, packetmax, in, out, err;
 
-	if (stdin_null_flag) {
+	if (options.stdin_null) {
 		in = open(_PATH_DEVNULL, O_RDONLY);
 	} else {
 		in = dup(STDIN_FILENO);
@@ -2123,18 +2103,18 @@ ssh_session2(struct ssh *ssh, const struct ssh_conn_info *cinfo)
 	 * async rfwd replies have been received for ExitOnForwardFailure).
 	 */
 	if (options.control_persist && muxserver_sock != -1) {
-		ostdin_null_flag = stdin_null_flag;
+		ostdin_null_flag = options.stdin_null;
 		osession_type = options.session_type;
 		orequest_tty = options.request_tty;
 		otty_flag = tty_flag;
-		stdin_null_flag = 1;
+		options.stdin_null = 1;
 		options.session_type = SESSION_TYPE_NONE;
 		tty_flag = 0;
-		if (!fork_after_authentication_flag &&
+		if (!options.fork_after_authentication &&
 		    (osession_type != SESSION_TYPE_NONE ||
 		    options.stdio_forward_host != NULL))
 			need_controlpersist_detach = 1;
-		fork_after_authentication_flag = 1;
+		options.fork_after_authentication = 1;
 	}
 	/*
 	 * ControlPersist mux listen socket setup failed, attempt the
@@ -2181,7 +2161,7 @@ ssh_session2(struct ssh *ssh, const struct ssh_conn_info *cinfo)
 	 * If requested and we are not interested in replies to remote
 	 * forwarding requests, then let ssh continue in the background.
 	 */
-	if (fork_after_authentication_flag) {
+	if (options.fork_after_authentication) {
 		if (options.exit_on_forward_failure &&
 		    options.num_remote_forwards > 0) {
 			debug("deferring postauth fork until remote forward "
