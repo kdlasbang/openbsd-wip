@@ -23,10 +23,15 @@
 #include <machine/bus.h>
 #include <sys/device.h>
 #include <sys/pool.h>
+#include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <sys/fusebuf.h>
 #include <dev/pv/virtioreg.h>
 #include <dev/pv/virtiovar.h>
 
 #define VIOFS_DEBUG 0
+
+#define VIOFS_CONFIG_TAG 0
 
 struct viofs_softc {
 	struct device		 sc_dev;
@@ -34,6 +39,14 @@ struct viofs_softc {
 
 	struct virtqueue         sc_hiprioq;
 	struct virtqueue         sc_reqq;
+	bus_dmamap_t		 sc_dmamap;
+	bus_dma_segment_t	 sc_hiprio_reqs;
+	bus_dma_segment_t	 sc_req_reqs;
+
+	struct fusebuf		*sc_fusebuf;
+
+	char			 sc_tag[37];
+
 };
 
 int	viofs_match(struct device *, void *, void *);
@@ -65,6 +78,7 @@ viofs_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct viofs_softc *sc = (struct viofs_softc *)self;
 	struct virtio_softc *vsc = (struct virtio_softc *)parent;
+	uint64_t tagb;
 
 	vsc->sc_nvqs = 2;
 	vsc->sc_config_change = 0;
@@ -76,24 +90,23 @@ viofs_attach(struct device *parent, struct device *self, void *aux)
 
 	virtio_negotiate_features(vsc, NULL);
 
-/*
-	sc->sc_buf = dma_alloc(VIORND_BUFSIZE, PR_NOWAIT|PR_ZERO);
-	if (sc->sc_buf == NULL) {
+	sc->sc_fusebuf = dma_alloc(MAXPHYS, PR_NOWAIT|PR_ZERO);
+	if (sc->sc_fusebuf == NULL) {
 		printf(": Can't alloc dma buffer\n");
 		goto err;
 	}
-	if (bus_dmamap_create(sc->sc_virtio->sc_dmat, VIORND_BUFSIZE, 1,
-	    VIORND_BUFSIZE, 0, BUS_DMA_NOWAIT|BUS_DMA_ALLOCNOW,
+	if (bus_dmamap_create(sc->sc_virtio->sc_dmat, MAXPHYS, 1,
+	    MAXPHYS, 0, BUS_DMA_NOWAIT|BUS_DMA_ALLOCNOW,
 	    &sc->sc_dmamap)) {
 		printf(": Can't alloc dmamap\n");
 		goto err;
 	}
 	if (bus_dmamap_load(sc->sc_virtio->sc_dmat, sc->sc_dmamap,
-	    sc->sc_buf, VIORND_BUFSIZE, NULL, BUS_DMA_NOWAIT|BUS_DMA_READ)) {
+	    sc->sc_fusebuf, MAXPHYS, NULL, BUS_DMA_NOWAIT|BUS_DMA_READ)) {
 		printf(": Can't load dmamap\n");
-		goto err2;
+		goto err;
 	}
-*/
+
 	if (virtio_alloc_vq(vsc, &sc->sc_hiprioq, 0, MAXPHYS, 1,
 	    "hi prio") != 0) {
 		printf(": Can't alloc hi prio virtqueue\n");
@@ -103,7 +116,7 @@ viofs_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_hiprioq.vq_done = viofs_vq_done;
 	virtio_start_vq_intr(vsc, &sc->sc_hiprioq);
 
-	if (virtio_alloc_vq(vsc, &sc->sc_reqq, 0, MAXPHYS, 1,
+	if (virtio_alloc_vq(vsc, &sc->sc_reqq, 1, MAXPHYS, 1,
 	    "request queue") != 0) {
 		printf(": Can't alloc request virtqueue\n");
 		goto err;
@@ -112,16 +125,39 @@ viofs_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_reqq.vq_done = viofs_vq_done;
 	virtio_start_vq_intr(vsc, &sc->sc_reqq);
 
+
+	memset(&sc->sc_tag, 0, 36);
+	tagb = virtio_read_device_config_8(vsc, VIOFS_CONFIG_TAG);
+	memcpy(&sc->sc_tag[0], &tagb, 8);
+	tagb = virtio_read_device_config_8(vsc, VIOFS_CONFIG_TAG + 8);
+	memcpy(&sc->sc_tag[8], &tagb, 8);
+	tagb = virtio_read_device_config_8(vsc, VIOFS_CONFIG_TAG + 16);
+	memcpy(&sc->sc_tag[16], &tagb, 8);
+	tagb = virtio_read_device_config_8(vsc, VIOFS_CONFIG_TAG + 24);
+	memcpy(&sc->sc_tag[24], &tagb, 8);
+	tagb = virtio_read_device_config_4(vsc, VIOFS_CONFIG_TAG + 32);
+	memcpy(&sc->sc_tag[32], &tagb, 4);
+
+	sc->sc_tag[36] = 0;
+
+	printf(": host tag %s\n", sc->sc_tag);
+#if 0
+	if (viofs_alloc_reqs(sc)) {
+		printf(": Can't alloc request buffers\n");
+		goto err;
+	}
+#endif
+
 	printf("\n");
 	return;
 err:
 	vsc->sc_child = VIRTIO_CHILD_ERROR;
-/*
-	if (sc->sc_buf != NULL) {
-		dma_free(sc->sc_buf, VIORND_BUFSIZE);
-		sc->sc_buf = NULL;
+
+	if (sc->sc_fusebuf != NULL) {
+		dma_free(sc->sc_fusebuf, MAXPHYS);
+		sc->sc_fusebuf = NULL;
 	}
-*/
+
 	return;
 }
 
@@ -129,20 +165,47 @@ int
 viofs_vq_done(struct virtqueue *vq)
 {
 	struct virtio_softc *vsc = vq->vq_owner;
-//	struct viofs_softc *sc = (struct viofs_softc *)vsc->sc_child;
+	struct viofs_softc *sc = (struct viofs_softc *)vsc->sc_child;
 	int slot, len;
 
 	if (virtio_dequeue(vsc, vq, &slot, &len) != 0)
 		return 0;
-/*
-	bus_dmamap_sync(vsc->sc_dmat, sc->sc_dmamap, 0, VIORND_BUFSIZE,
+
+	bus_dmamap_sync(vsc->sc_dmat, sc->sc_dmamap, 0, MAXPHYS,
 	    BUS_DMASYNC_POSTREAD);
-	if (len > VIORND_BUFSIZE) {
-		printf("%s: inconsistent descriptor length %d > %d\n",
-		    sc->sc_dev.dv_xname, len, VIORND_BUFSIZE);
+	if (len > MAXPHYS) {
+		printf("%s: invalid descriptor length %d > %d\n",
+		    sc->sc_dev.dv_xname, len, MAXPHYS);
 		goto out;
 	}
-*/
+out:
 	virtio_dequeue_commit(vq, slot);
 	return 1;
 }
+
+/*
+int
+viofs_alloc_reqs(struct viofs_softc *sc)
+{
+	int qsize, allocsize, r;
+
+	qsize = sc->sc_hiprioq.vq_num;
+
+	allocsize = FUSEBUFMAXSIZE * qsize;
+	printf("%s: allocating %d hiprioq bytes\n", __func__);
+
+	r = bus_dmamem_alloc(sc->sc_virtio->sc_dmat, allocsize, 0, 0,
+	    &sc->sc_hiprioq_segs, 1, &rsegs, BUS_DMA_NOWAIT);
+	if (r != 0) {
+		printf("DMA memory allocation failed, size %d, error %d\n",
+		    allocsize, r);
+		goto err_none;
+	}
+
+	r = bus_dmamem_map(sc->sc_virtio->sc_dmat, &sc->sc_hiprioq_segs, 1,
+	    allocsize, (caddr_t *)&vaddr, BUS_DMA_NOWAIT);
+	if (r != 0) {
+		printf("DMA memory map failed, error %d\n", r);
+		goto err_dmamem_alloc;
+	}
+*/
