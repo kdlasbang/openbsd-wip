@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.393 2021/06/10 07:59:31 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.398 2021/08/11 07:51:31 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -67,6 +67,7 @@ static void	tty_repeat_space(struct tty *, u_int);
 static void	tty_draw_pane(struct tty *, const struct tty_ctx *, u_int);
 static void	tty_default_attributes(struct tty *, const struct grid_cell *,
 		    int *, u_int);
+static int	tty_check_overlay(struct tty *, u_int, u_int);
 
 #define tty_use_margin(tty) \
 	(tty->term->flags & TERM_DECSLRM)
@@ -1069,6 +1070,7 @@ tty_clear_line(struct tty *tty, const struct grid_cell *defaults, u_int py,
     u_int px, u_int nx, u_int bg)
 {
 	struct client	*c = tty->client;
+	u_int		 i;
 
 	log_debug("%s: %s, %u at %u,%u", __func__, c->name, nx, px, py);
 
@@ -1077,7 +1079,7 @@ tty_clear_line(struct tty *tty, const struct grid_cell *defaults, u_int py,
 		return;
 
 	/* If genuine BCE is available, can try escape sequences. */
-	if (!tty_fake_bce(tty, defaults, bg)) {
+	if (c->overlay_check == NULL && !tty_fake_bce(tty, defaults, bg)) {
 		/* Off the end of the line, use EL if available. */
 		if (px + nx >= tty->sx && tty_term_has(tty->term, TTYC_EL)) {
 			tty_cursor(tty, px, py);
@@ -1100,9 +1102,22 @@ tty_clear_line(struct tty *tty, const struct grid_cell *defaults, u_int py,
 		}
 	}
 
-	/* Couldn't use an escape sequence, use spaces. */
+	/*
+	 * Couldn't use an escape sequence, use spaces. Clear only the visible
+	 * bit if there is an overlay.
+	 */
+	for (i = 0; i < nx; i++) {
+		if (!tty_check_overlay(tty, px + i, py))
+			break;
+	}
 	tty_cursor(tty, px, py);
-	tty_repeat_space(tty, nx);
+	tty_repeat_space(tty, i);
+	for (; i < nx; i++) {
+		if (tty_check_overlay(tty, px + i, py))
+			break;
+	}
+	tty_cursor(tty, px + i, py);
+	tty_repeat_space(tty, nx - i);
 }
 
 /* Clear a line, adjusting to visible part of pane. */
@@ -1197,7 +1212,7 @@ tty_clear_area(struct tty *tty, const struct grid_cell *defaults, u_int py,
 		return;
 
 	/* If genuine BCE is available, can try escape sequences. */
-	if (!tty_fake_bce(tty, defaults, bg)) {
+	if (c->overlay_check == NULL && !tty_fake_bce(tty, defaults, bg)) {
 		/* Use ED if clearing off the bottom of the terminal. */
 		if (px == 0 &&
 		    px + nx >= tty->sx &&
@@ -1332,7 +1347,8 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 	struct grid_cell	 gc, last;
 	const struct grid_cell	*gcp;
 	struct grid_line	*gl;
-	u_int			 i, j, ux, sx, width;
+	struct client		*c = tty->client;
+	u_int			 i, j, ux, sx, width, hidden;
 	int			 flags, cleared = 0, wrapped = 0;
 	char			 buf[512];
 	size_t			 len;
@@ -1383,7 +1399,8 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 		    atx == 0 &&
 		    px + sx != nx &&
 		    tty_term_has(tty->term, TTYC_EL1) &&
-		    !tty_fake_bce(tty, defaults, 8)) {
+		    !tty_fake_bce(tty, defaults, 8) &&
+		    c->overlay_check == NULL) {
 			tty_default_attributes(tty, defaults, palette, 8);
 			tty_cursor(tty, nx - 1, aty);
 			tty_putcode(tty, TTYC_EL1);
@@ -1432,17 +1449,31 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 			screen_select_cell(s, &last, gcp);
 		else
 			memcpy(&last, gcp, sizeof last);
-		if (!tty_check_overlay(tty, atx + ux, aty)) {
+
+		hidden = 0;
+		for (j = 0; j < gcp->data.width; j++) {
+			if (!tty_check_overlay(tty, atx + ux + j, aty))
+				hidden++;
+		}
+		if (hidden != 0 && hidden == gcp->data.width) {
 			if (~gcp->flags & GRID_FLAG_PADDING)
 				ux += gcp->data.width;
-		} else if (ux + gcp->data.width > nx) {
-			tty_attributes(tty, &last, defaults, palette);
-			tty_cursor(tty, atx + ux, aty);
-			for (j = 0; j < gcp->data.width; j++) {
-				if (ux + j > nx)
-					break;
-				tty_putc(tty, ' ');
-				ux++;
+		} else if (hidden != 0 || ux + gcp->data.width > nx) {
+			if (~gcp->flags & GRID_FLAG_PADDING) {
+				tty_attributes(tty, &last, defaults, palette);
+				tty_cursor(tty, atx + ux, aty);
+				for (j = 0; j < gcp->data.width; j++) {
+					if (ux > nx)
+						break;
+					if (tty_check_overlay(tty, atx + ux,
+					    aty))
+						tty_putc(tty, ' ');
+					else {
+						tty_cursor(tty, atx + ux + 1,
+						    aty);
+					}
+					ux++;
+				}
 			}
 		} else if (gcp->attr & GRID_ATTR_CHARSET) {
 			tty_attributes(tty, &last, defaults, palette);
@@ -1547,11 +1578,14 @@ tty_write(void (*cmdfn)(struct tty *, const struct tty_ctx *),
 void
 tty_cmd_insertcharacter(struct tty *tty, const struct tty_ctx *ctx)
 {
+	struct client	*c = tty->client;
+
 	if (ctx->bigger ||
 	    !tty_full_width(tty, ctx) ||
 	    tty_fake_bce(tty, &ctx->defaults, ctx->bg) ||
 	    (!tty_term_has(tty->term, TTYC_ICH) &&
-	    !tty_term_has(tty->term, TTYC_ICH1))) {
+	    !tty_term_has(tty->term, TTYC_ICH1)) ||
+	    c->overlay_check != NULL) {
 		tty_draw_pane(tty, ctx, ctx->ocy);
 		return;
 	}
@@ -1566,11 +1600,14 @@ tty_cmd_insertcharacter(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_deletecharacter(struct tty *tty, const struct tty_ctx *ctx)
 {
+	struct client	*c = tty->client;
+
 	if (ctx->bigger ||
 	    !tty_full_width(tty, ctx) ||
 	    tty_fake_bce(tty, &ctx->defaults, ctx->bg) ||
 	    (!tty_term_has(tty->term, TTYC_DCH) &&
-	    !tty_term_has(tty->term, TTYC_DCH1))) {
+	    !tty_term_has(tty->term, TTYC_DCH1)) ||
+	    c->overlay_check != NULL) {
 		tty_draw_pane(tty, ctx, ctx->ocy);
 		return;
 	}
@@ -1593,13 +1630,16 @@ tty_cmd_clearcharacter(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_insertline(struct tty *tty, const struct tty_ctx *ctx)
 {
+	struct client	*c = tty->client;
+
 	if (ctx->bigger ||
 	    !tty_full_width(tty, ctx) ||
 	    tty_fake_bce(tty, &ctx->defaults, ctx->bg) ||
 	    !tty_term_has(tty->term, TTYC_CSR) ||
 	    !tty_term_has(tty->term, TTYC_IL1) ||
 	    ctx->sx == 1 ||
-	    ctx->sy == 1) {
+	    ctx->sy == 1 ||
+	    c->overlay_check != NULL) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
@@ -1617,13 +1657,16 @@ tty_cmd_insertline(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_deleteline(struct tty *tty, const struct tty_ctx *ctx)
 {
+	struct client	*c = tty->client;
+
 	if (ctx->bigger ||
 	    !tty_full_width(tty, ctx) ||
 	    tty_fake_bce(tty, &ctx->defaults, ctx->bg) ||
 	    !tty_term_has(tty->term, TTYC_CSR) ||
 	    !tty_term_has(tty->term, TTYC_DL1) ||
 	    ctx->sx == 1 ||
-	    ctx->sy == 1) {
+	    ctx->sy == 1 ||
+	    c->overlay_check != NULL) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
@@ -1667,6 +1710,8 @@ tty_cmd_clearstartofline(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_reverseindex(struct tty *tty, const struct tty_ctx *ctx)
 {
+	struct client	*c = tty->client;
+
 	if (ctx->ocy != ctx->orupper)
 		return;
 
@@ -1677,7 +1722,8 @@ tty_cmd_reverseindex(struct tty *tty, const struct tty_ctx *ctx)
 	    (!tty_term_has(tty->term, TTYC_RI) &&
 	    !tty_term_has(tty->term, TTYC_RIN)) ||
 	    ctx->sx == 1 ||
-	    ctx->sy == 1) {
+	    ctx->sy == 1 ||
+	    c->overlay_check != NULL) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
@@ -1697,6 +1743,8 @@ tty_cmd_reverseindex(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 {
+	struct client	*c = tty->client;
+
 	if (ctx->ocy != ctx->orlower)
 		return;
 
@@ -1705,7 +1753,8 @@ tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 	    tty_fake_bce(tty, &ctx->defaults, 8) ||
 	    !tty_term_has(tty->term, TTYC_CSR) ||
 	    ctx->sx == 1 ||
-	    ctx->sy == 1) {
+	    ctx->sy == 1 ||
+	    c->overlay_check != NULL) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
@@ -1736,14 +1785,16 @@ tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_scrollup(struct tty *tty, const struct tty_ctx *ctx)
 {
-	u_int	i;
+	struct client	*c = tty->client;
+	u_int		 i;
 
 	if (ctx->bigger ||
 	    (!tty_full_width(tty, ctx) && !tty_use_margin(tty)) ||
 	    tty_fake_bce(tty, &ctx->defaults, 8) ||
 	    !tty_term_has(tty->term, TTYC_CSR) ||
 	    ctx->sx == 1 ||
-	    ctx->sy == 1) {
+	    ctx->sy == 1 ||
+	    c->overlay_check != NULL) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
@@ -1772,7 +1823,8 @@ tty_cmd_scrollup(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_scrolldown(struct tty *tty, const struct tty_ctx *ctx)
 {
-	u_int	i;
+	u_int		 i;
+	struct client	*c = tty->client;
 
 	if (ctx->bigger ||
 	    (!tty_full_width(tty, ctx) && !tty_use_margin(tty)) ||
@@ -1781,7 +1833,8 @@ tty_cmd_scrolldown(struct tty *tty, const struct tty_ctx *ctx)
 	    (!tty_term_has(tty->term, TTYC_RI) &&
 	    !tty_term_has(tty->term, TTYC_RIN)) ||
 	    ctx->sx == 1 ||
-	    ctx->sy == 1) {
+	    ctx->sy == 1 ||
+	    c->overlay_check != NULL) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
@@ -1891,8 +1944,27 @@ tty_cmd_alignmenttest(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 {
-	if (!tty_is_visible(tty, ctx, ctx->ocx, ctx->ocy, 1, 1))
+	const struct grid_cell	*gcp = ctx->cell;
+	struct screen		*s = ctx->s;
+	u_int			 i, px, py;
+
+	px = ctx->xoff + ctx->ocx - ctx->wox;
+	py = ctx->yoff + ctx->ocy - ctx->woy;
+	if (!tty_is_visible(tty, ctx, ctx->ocx, ctx->ocy, 1, 1) ||
+	    (gcp->data.width == 1 && !tty_check_overlay(tty, px, py)))
 		return;
+
+	/* Handle partially obstructed wide characters. */
+	if (gcp->data.width > 1) {
+		for (i = 0; i < gcp->data.width; i++) {
+			if (!tty_check_overlay(tty, px + i, py)) {
+				tty_draw_line(tty, s, s->cx, s->cy,
+				    gcp->data.width, px, py, &ctx->defaults,
+				    ctx->palette);
+				return;
+			}
+		}
+	}
 
 	if (ctx->xoff + ctx->ocx - ctx->wox > tty->sx - 1 &&
 	    ctx->ocy == ctx->orlower &&
@@ -1908,6 +1980,8 @@ tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_cells(struct tty *tty, const struct tty_ctx *ctx)
 {
+	u_int	i, hide = 0;
+
 	if (!tty_is_visible(tty, ctx, ctx->ocx, ctx->ocy, ctx->num, 1))
 		return;
 
@@ -1931,7 +2005,18 @@ tty_cmd_cells(struct tty *tty, const struct tty_ctx *ctx)
 	tty_cursor_pane_unless_wrap(tty, ctx, ctx->ocx, ctx->ocy);
 
 	tty_attributes(tty, ctx->cell, &ctx->defaults, ctx->palette);
-	tty_putn(tty, ctx->ptr, ctx->num, ctx->num);
+	for (i = 0; i < ctx->num; i++) {
+		if (!tty_check_overlay(tty, tty->cx + i, tty->cy))
+			break;
+	}
+	tty_putn(tty, ctx->ptr, i, i);
+	for (; i < ctx->num; i++) {
+		if (tty_check_overlay(tty, tty->cx + hide, tty->cy))
+			break;
+		hide++;
+	}
+	tty_cursor(tty, tty->cx + hide, tty->cy);
+	tty_putn(tty, (char *)ctx->ptr + i, ctx->num - i, ctx->num - i);
 }
 
 void
@@ -1956,6 +2041,7 @@ tty_set_selection(struct tty *tty, const char *buf, size_t len)
 
 	b64_ntop(buf, len, encoded, size);
 	tty_putcode_ptr2(tty, TTYC_MS, "", encoded);
+	tty->client->redraw = EVBUFFER_LENGTH(tty->out);
 
 	free(encoded);
 }

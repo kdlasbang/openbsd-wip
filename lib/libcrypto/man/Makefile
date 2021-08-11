@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.187 2021/07/26 14:03:43 schwarze Exp $
+# $OpenBSD: Makefile,v 1.190 2021/08/06 21:50:54 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -284,6 +284,7 @@ MAN=	\
 	X509_EXTENSION_set_object.3 \
 	X509_INFO_new.3 \
 	X509_LOOKUP_hash_dir.3 \
+	X509_LOOKUP_new.3 \
 	X509_NAME_ENTRY_get_object.3 \
 	X509_NAME_add_entry_by_txt.3 \
 	X509_NAME_get_index_by_NID.3 \
@@ -301,6 +302,7 @@ MAN=	\
 	X509_STORE_CTX_new.3 \
 	X509_STORE_CTX_set_flags.3 \
 	X509_STORE_CTX_set_verify_cb.3 \
+	X509_STORE_get_by_subject.3 \
 	X509_STORE_load_locations.3 \
 	X509_STORE_new.3 \
 	X509_STORE_set_verify_cb_func.3 \
@@ -327,6 +329,8 @@ MAN=	\
 	X509_get1_email.3 \
 	X509_keyid_set1.3 \
 	X509_new.3 \
+	X509_ocspid_print.3 \
+	X509_policy_check.3 \
 	X509_policy_tree_level_count.3 \
 	X509_print_ex.3 \
 	X509_sign.3 \

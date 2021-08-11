@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwxvar.h,v 1.17 2021/06/30 09:46:46 stsp Exp $	*/
+/*	$OpenBSD: if_iwxvar.h,v 1.22 2021/08/07 09:21:51 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -123,11 +123,7 @@ struct iwx_tx_radiotap_header {
 	 (1 << IEEE80211_RADIOTAP_RATE) |				\
 	 (1 << IEEE80211_RADIOTAP_CHANNEL))
 
-#define IWX_UCODE_SECT_MAX 42
-#define IWX_FWDMASEGSZ (192*1024)
-#define IWX_FWDMASEGSZ_8000 (320*1024)
-/* sanity check value */
-#define IWX_FWMAXSIZE (2*1024*1024)
+#define IWX_UCODE_SECT_MAX 48
 
 /*
  * fw_status is used to determine if we've already parsed the firmware file
@@ -236,6 +232,8 @@ struct iwx_tx_data {
 	bus_addr_t	cmd_paddr;
 	struct mbuf	*m;
 	struct iwx_node *in;
+	int flags;
+#define IWX_TXDATA_FLAG_CMD_IS_NARROW	0x01
 };
 
 struct iwx_tx_ring {
@@ -493,14 +491,11 @@ struct iwx_softc {
 	const void *sc_ih;
 	int sc_msix;
 
-	/* TX scheduler rings. */
-	struct iwx_dma_info		sched_dma;
-	uint32_t			sched_base;
-
 	/* TX/RX rings. */
 	struct iwx_tx_ring txq[IWX_MAX_QUEUES];
 	struct iwx_rx_ring rxq;
 	int qfullmsk;
+	int first_data_qid;
 
 	int sc_sf_state;
 
@@ -518,8 +513,6 @@ struct iwx_softc {
 #define IWX_DEVICE_FAMILY_22000	1
 #define IWX_DEVICE_FAMILY_22560	2
 
-	struct iwx_dma_info fw_dma;
-
 	struct iwx_dma_info ctxt_info_dma;
 	struct iwx_self_init_dram init_dram;
 
@@ -536,7 +529,7 @@ struct iwx_softc {
 	int sc_capa_n_scan_channels;
 	uint8_t sc_ucode_api[howmany(IWX_NUM_UCODE_TLV_API, NBBY)];
 	uint8_t sc_enabled_capa[howmany(IWX_NUM_UCODE_TLV_CAPA, NBBY)];
-#define IWX_MAX_FW_CMD_VERSIONS	64
+#define IWX_MAX_FW_CMD_VERSIONS	167
 	struct iwx_fw_cmd_version cmd_versions[IWX_MAX_FW_CMD_VERSIONS];
 	int n_cmd_versions;
 
@@ -555,7 +548,6 @@ struct iwx_softc {
 	int sc_cap_off; /* PCIe caps */
 
 	const char *sc_fwname;
-	bus_size_t sc_fwdmasegsz;
 	struct iwx_fw_info sc_fw;
 	struct iwx_dma_info fw_mon;
 	int sc_fw_phy_config;

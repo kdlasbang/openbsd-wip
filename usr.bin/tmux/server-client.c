@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.376 2021/07/21 08:06:36 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.378 2021/08/05 09:43:51 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -117,7 +117,8 @@ server_client_set_overlay(struct client *c, u_int delay,
 	c->overlay_resize = resizecb;
 	c->overlay_data = data;
 
-	c->tty.flags |= TTY_FREEZE;
+	if (c->overlay_check == NULL)
+		c->tty.flags |= TTY_FREEZE;
 	if (c->overlay_mode == NULL)
 		c->tty.flags |= TTY_NOCURSOR;
 	server_redraw_client(c);
@@ -1127,6 +1128,8 @@ server_client_update_latest(struct client *c)
 
 	if (options_get_number(w->options, "window-size") == WINDOW_SIZE_LATEST)
 		recalculate_size(w, 0);
+
+	notify_client("client-active", c);
 }
 
 /*

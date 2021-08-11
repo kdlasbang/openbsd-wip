@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2var.h,v 1.20 2021/07/22 18:32:33 mglocker Exp $	*/
+/*	$OpenBSD: dwc2var.h,v 1.22 2021/07/30 18:05:24 mglocker Exp $	*/
 /*	$NetBSD: dwc2var.h,v 1.3 2013/10/22 12:57:40 skrll Exp $	*/
 
 /*-
@@ -46,9 +46,6 @@ struct dwc2_xfer {
 
 	TAILQ_ENTRY(dwc2_xfer) xnext;		/* list of complete xfers */
 	usbd_status intr_status;
-	u_int32_t flags;
-#define DWC2_XFER_ABORTING      0x0001  /* xfer is aborting. */
-#define DWC2_XFER_ABORTWAIT     0x0002  /* abort completion is being awaited. */
 };
 
 struct dwc2_pipe {
@@ -128,7 +125,7 @@ dwc2_root_intr(dwc2_softc_t *sc)
 /*
  * XXX Compat
  */
-#define DWC2_MAXISOCPACKETS	16	/* XXX: Fix nframes handling */
+#define DWC2_MAXISOCPACKETS	40	/* XXX: Fix nframes handling */
 #define ENOSR			90
 #define device_xname(d)		((d)->dv_xname)
 #define jiffies			hardclock_ticks

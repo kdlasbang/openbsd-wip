@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpleased.h,v 1.8 2021/07/26 09:26:36 florian Exp $	*/
+/*	$OpenBSD: dhcpleased.h,v 1.10 2021/08/01 09:07:03 florian Exp $	*/
 
 /*
  * Copyright (c) 2017, 2021 Florian Obser <florian@openbsd.org>
@@ -217,6 +217,7 @@ enum imsg_type {
 	IMSG_PROPOSE_RDNS,
 	IMSG_WITHDRAW_RDNS,
 	IMSG_REPROPOSE_RDNS,
+	IMSG_REQUEST_REBOOT,
 };
 
 #ifndef	SMALL

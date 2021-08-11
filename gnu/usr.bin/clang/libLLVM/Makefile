@@ -48,7 +48,7 @@
 .include "../libLLVMScalarOpts/Makefile"
 .include "../libLLVMSelectionDAG/Makefile"
 .include "../libLLVMSupport/Makefile.shared"
-.include "../libLLVMTableGen/Makefile.shared"
+.include "../libLLVMSymbolize/Makefile"
 .include "../libLLVMTarget/Makefile"
 .include "../libLLVMTextAPI/Makefile"
 .include "../libLLVMTransformUtils/Makefile"

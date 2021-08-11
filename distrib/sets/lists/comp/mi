@@ -8,6 +8,7 @@
 ./usr/bin/lex
 ./usr/bin/libtool
 ./usr/bin/lorder
+./usr/bin/objcopy
 ./usr/bin/objdump
 ./usr/bin/ranlib
 ./usr/bin/rpcgen
@@ -2148,6 +2149,7 @@
 ./usr/share/man/man3/X509_EXTENSION_set_object.3
 ./usr/share/man/man3/X509_INFO_new.3
 ./usr/share/man/man3/X509_LOOKUP_hash_dir.3
+./usr/share/man/man3/X509_LOOKUP_new.3
 ./usr/share/man/man3/X509_NAME_ENTRY_get_object.3
 ./usr/share/man/man3/X509_NAME_add_entry_by_txt.3
 ./usr/share/man/man3/X509_NAME_get_index_by_NID.3
@@ -2165,6 +2167,7 @@
 ./usr/share/man/man3/X509_STORE_CTX_new.3
 ./usr/share/man/man3/X509_STORE_CTX_set_flags.3
 ./usr/share/man/man3/X509_STORE_CTX_set_verify_cb.3
+./usr/share/man/man3/X509_STORE_get_by_subject.3
 ./usr/share/man/man3/X509_STORE_load_locations.3
 ./usr/share/man/man3/X509_STORE_new.3
 ./usr/share/man/man3/X509_STORE_set1_param.3
@@ -2191,6 +2194,9 @@
 ./usr/share/man/man3/X509_get_version.3
 ./usr/share/man/man3/X509_keyid_set1.3
 ./usr/share/man/man3/X509_new.3
+./usr/share/man/man3/X509_ocspid_print.3
+./usr/share/man/man3/X509_policy_check.3
+./usr/share/man/man3/X509_policy_tree_level_count.3
 ./usr/share/man/man3/X509_print_ex.3
 ./usr/share/man/man3/X509_sign.3
 ./usr/share/man/man3/X509_signature_dump.3

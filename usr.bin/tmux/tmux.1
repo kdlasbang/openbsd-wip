@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.844 2021/06/18 07:46:54 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.848 2021/08/11 08:40:58 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 18 2021 $
+.Dd $Mdocdate: August 11 2021 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -1676,8 +1676,10 @@ The following commands are supported in copy mode:
 .It Li "bottom-line" Ta "L" Ta ""
 .It Li "cancel" Ta "q" Ta "Escape"
 .It Li "clear-selection" Ta "Escape" Ta "C-g"
-.It Li "copy-end-of-line [<prefix>]" Ta "D" Ta "C-k"
+.It Li "copy-end-of-line [<prefix>]" Ta "" Ta ""
+.It Li "copy-end-of-line-and-cancel [<prefix>]" Ta "D" Ta "C-k"
 .It Li "copy-line [<prefix>]" Ta "" Ta ""
+.It Li "copy-line-and-cancel [<prefix>]" Ta "" Ta ""
 .It Li "copy-pipe [<command>] [<prefix>]" Ta "" Ta ""
 .It Li "copy-pipe-no-clear [<command>] [<prefix>]" Ta "" Ta ""
 .It Li "copy-pipe-and-cancel [<command>] [<prefix>]" Ta "" Ta ""
@@ -4396,10 +4398,16 @@ See
 Run when a window has been silent.
 See
 .Ic monitor-silence .
+.It client-active
+Run when a client becomes the latest active client of its session.
 .It client-attached
 Run when a client is attached.
 .It client-detached
 Run when a client is detached
+.It client-focus-in
+Run when focus enters a client
+.It client-focus-out
+Run when focus exits a client
 .It client-resized
 Run when a client is resized.
 .It client-session-changed
@@ -5499,6 +5507,7 @@ option:
 .It Li "Transpose characters" Ta "" Ta "C-t"
 .El
 .It Xo Ic confirm-before
+.Op Fl b
 .Op Fl p Ar prompt
 .Op Fl t Ar target-client
 .Ar command
@@ -5515,9 +5524,9 @@ is the prompt to display; otherwise a prompt is constructed from
 It may contain the special character sequences supported by the
 .Ic status-left
 option.
-.Pp
-This command works only from inside
-.Nm .
+With
+.Fl b ,
+the prompt is shown in the background and the client.
 .It Xo Ic display-menu
 .Op Fl O
 .Op Fl c Ar target-client

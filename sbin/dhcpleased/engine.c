@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.22 2021/07/26 09:26:36 florian Exp $	*/
+/*	$OpenBSD: engine.c,v 1.24 2021/08/04 05:56:58 florian Exp $	*/
 
 /*
  * Copyright (c) 2017, 2021 Florian Obser <florian@openbsd.org>
@@ -317,7 +317,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 			memcpy(&if_index, imsg.data, sizeof(if_index));
 			engine_showinfo_ctl(&imsg, if_index);
 			break;
-		case IMSG_CTL_SEND_REQUEST:
+		case IMSG_REQUEST_REBOOT:
 			if (IMSG_DATA_SIZE(imsg) != sizeof(if_index))
 				fatalx("%s: IMSG_CTL_SEND_DISCOVER wrong "
 				    "length: %lu", __func__,
@@ -1389,7 +1389,7 @@ iface_timeout(int fd, short events, void *arg)
 			state_transition(iface, IF_REBOOTING);
 		break;
 	case IF_REQUESTING:
-		if (iface->timo.tv_sec >= MAX_EXP_BACKOFF_FAST)
+		if (iface->timo.tv_sec >= MAX_EXP_BACKOFF_SLOW)
 			state_transition(iface, IF_INIT);
 		else
 			state_transition(iface, IF_REQUESTING);

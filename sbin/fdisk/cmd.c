@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmd.c,v 1.135 2021/07/21 20:26:30 krw Exp $	*/
+/*	$OpenBSD: cmd.c,v 1.137 2021/08/07 13:37:50 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -51,7 +51,6 @@ extern const int		manpage_sz;
 int
 Xreinit(char *args, struct mbr *mbr)
 {
-	struct dos_mbr		dos_mbr;
 	int			dogpt;
 
 	dogpt = 0;
@@ -64,9 +63,6 @@ Xreinit(char *args, struct mbr *mbr)
 		printf("Unrecognized modifier '%s'\n", args);
 		return CMD_CONT;
 	}
-
-	MBR_make(&initial_mbr, &dos_mbr);
-	MBR_parse(&dos_mbr, mbr->mbr_lba_self, mbr->mbr_lba_firstembr, mbr);
 
 	if (dogpt) {
 		GPT_init(GHANDGP);
@@ -88,7 +84,6 @@ Xdisk(char *args, struct mbr *mbr)
 	int			maxhead = 256;
 	int			maxsec  = 63;
 
-	/* Print out disk info */
 	DISK_printgeometry(args);
 
 #if defined (__powerpc__) || defined (__mips__)
@@ -401,7 +396,6 @@ Xselect(char *args, struct mbr *mbr)
 
 	lba_self = mbr->mbr_prt[pn].prt_bs;
 
-	/* Sanity checks */
 	if ((mbr->mbr_prt[pn].prt_id != DOSPTYP_EXTEND) &&
 	    (mbr->mbr_prt[pn].prt_id != DOSPTYP_EXTENDL)) {
 		printf("Partition %d is not an extended partition.\n", pn);
@@ -419,7 +413,6 @@ Xselect(char *args, struct mbr *mbr)
 		printf("New EMBR at offset %llu.\n", lba_self);
 	}
 
-	/* Recursion is beautiful! */
 	USER_edit(lba_self, lba_firstembr);
 
 	return CMD_CONT;
@@ -511,7 +504,7 @@ Xhelp(char *args, struct mbr *mbr)
 int
 Xupdate(char *args, struct mbr *mbr)
 {
-	memcpy(mbr->mbr_code, initial_mbr.mbr_code, sizeof(mbr->mbr_code));
+	memcpy(mbr->mbr_code, default_dmbr.dmbr_boot, sizeof(mbr->mbr_code));
 	mbr->mbr_signature = DOSMBR_SIGNATURE;
 	printf("Machine code updated.\n");
 	return CMD_DIRTY;

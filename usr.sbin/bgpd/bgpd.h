@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.h,v 1.415 2021/06/17 16:05:26 claudio Exp $ */
+/*	$OpenBSD: bgpd.h,v 1.417 2021/08/09 08:15:34 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -95,6 +95,7 @@
 #define	F_CTL_OVS_INVALID	0x100000
 #define	F_CTL_OVS_NOTFOUND	0x200000
 #define	F_CTL_NEIGHBORS		0x400000 /* only used by bgpctl */
+#define	F_CTL_HAS_PATHID	0x800000 /* only set on requests */
 
 #define CTASSERT(x)	extern char  _ctassert[(x) ? 1 : -1 ] \
 			    __attribute__((__unused__))
@@ -791,6 +792,7 @@ struct ctl_neighbor {
 #define	F_PREF_ANNOUNCE	0x08
 #define	F_PREF_STALE	0x10
 #define	F_PREF_INVALID	0x20
+#define	F_PREF_PATH_ID	0x40
 
 struct ctl_show_rib {
 	struct bgpd_addr	true_nexthop;
@@ -800,6 +802,7 @@ struct ctl_show_rib {
 	char			descr[PEER_DESCR_LEN];
 	time_t			age;
 	u_int32_t		remote_id;
+	u_int32_t		path_id;
 	u_int32_t		local_pref;
 	u_int32_t		med;
 	u_int32_t		weight;
@@ -889,9 +892,10 @@ struct ctl_show_rib_request {
 	struct filter_as	as;
 	struct community	community;
 	u_int32_t		flags;
-	u_int8_t		validation_state;
+	u_int32_t		path_id;
 	pid_t			pid;
 	enum imsg_type		type;
+	u_int8_t		validation_state;
 	u_int8_t		prefixlen;
 	u_int8_t		aid;
 };

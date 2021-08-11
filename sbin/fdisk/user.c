@@ -1,4 +1,4 @@
-/*	$OpenBSD: user.c,v 1.67 2021/07/21 12:22:54 krw Exp $	*/
+/*	$OpenBSD: user.c,v 1.70 2021/08/10 13:48:34 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -20,10 +20,8 @@
 #include <sys/disklabel.h>
 
 #include <err.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "part.h"
 #include "mbr.h"
@@ -62,14 +60,13 @@ USER_edit(const uint64_t lba_self, const uint64_t lba_firstembr)
 {
 	struct mbr		 mbr;
 	char			*cmd, *args;
-	int			 i, st, error;
+	int			 i, st;
 	static int		 editlevel;
 
 	/* One level deeper */
 	editlevel += 1;
 
-	error = MBR_read(lba_self, lba_firstembr, &mbr);
-	if (error == -1)
+	if (MBR_read(lba_self, lba_firstembr, &mbr))
 		goto done;
 
 	if (editlevel == 1)
@@ -79,7 +76,11 @@ USER_edit(const uint64_t lba_self, const uint64_t lba_firstembr)
 
 again:
 	do {
-		printf("%s%s: %d> ", disk.dk_name, modified ? "*" : "", editlevel);
+		if (letoh64(gh.gh_sig) == GPTSIGNATURE && editlevel > 1)
+			goto done;	/* 'reinit gpt'. Unwind recursion! */
+
+		printf("%s%s: %d> ", disk.dk_name, modified ? "*" : "",
+		    editlevel);
 		fflush(stdout);
 		ask_cmd(&cmd, &args);
 
@@ -129,13 +130,12 @@ USER_print_disk(const int verbosity)
 {
 	struct mbr		mbr;
 	uint64_t		lba_self, lba_firstembr;
-	int			i, error;
+	int			i;
 
 	lba_self = lba_firstembr = 0;
 
 	do {
-		error = MBR_read(lba_self, lba_firstembr, &mbr);
-		if (error == -1)
+		if (MBR_read(lba_self, lba_firstembr, &mbr))
 			break;
 		if (lba_self == 0) {
 			if (GPT_read(ANYGPT)) {
