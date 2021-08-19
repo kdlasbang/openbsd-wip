@@ -29,6 +29,7 @@
 #include <sys/pledge.h>
 #include <sys/memrange.h>
 #include <sys/tracepoint.h>
+#include <sys/vmm.h>
 
 #include <uvm/uvm_extern.h>
 
@@ -113,7 +114,7 @@ int vmm_enabled(void);
 int vmm_probe(struct device *, void *, void *);
 void vmm_attach(struct device *, struct device *, void *);
 int vmmopen(dev_t, int, int, struct proc *);
-int vmmioctl(dev_t, u_long, caddr_t, int, struct proc *);
+int vmmioctl_md(dev_t, u_long, caddr_t, int, struct proc *);
 int vmmclose(dev_t, int, int, struct proc *);
 int vmm_start(void);
 int vmm_stop(void);
@@ -460,44 +461,21 @@ vmmopen(dev_t dev, int flag, int mode, struct proc *p)
 }
 
 /*
- * vmmioctl
+ * vmmioctl_md
  *
- * Main ioctl dispatch routine for /dev/vmm. Parses ioctl type and calls
- * appropriate lower level handler routine. Returns result to ioctl caller.
+ * MD ioctl functions for amd64
  */
 int
-vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
+vmmioctl_md(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 {
 	int ret;
 
 	switch (cmd) {
-	case VMM_IOC_CREATE:
-		if ((ret = vmm_start()) != 0) {
-			vmm_stop();
-			break;
-		}
-		ret = vm_create((struct vm_create_params *)data, p);
-		break;
-	case VMM_IOC_RUN:
-		ret = vm_run((struct vm_run_params *)data);
-		break;
-	case VMM_IOC_INFO:
-		ret = vm_get_info((struct vm_info_params *)data);
-		break;
-	case VMM_IOC_TERM:
-		ret = vm_terminate((struct vm_terminate_params *)data);
-		break;
 	case VMM_IOC_RESETCPU:
 		ret = vm_resetcpu((struct vm_resetcpu_params *)data);
 		break;
-	case VMM_IOC_INTR:
-		ret = vm_intr_pending((struct vm_intr_params *)data);
-		break;
-	case VMM_IOC_READREGS:
-		ret = vm_rwregs((struct vm_rwregs_params *)data, 0);
-		break;
-	case VMM_IOC_WRITEREGS:
-		ret = vm_rwregs((struct vm_rwregs_params *)data, 1);
+	case VMM_IOC_RUN:
+		ret = vm_run((struct vm_run_params *)data);
 		break;
 	case VMM_IOC_MPROTECT_EPT:
 		ret = vm_mprotect_ept((struct vm_mprotect_ept_params *)data);
@@ -508,7 +486,6 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case VMM_IOC_WRITEVMPARAMS:
 		ret = vm_rwvmparams((struct vm_rwvmparams_params *)data, 1);
 		break;
-
 	default:
 		DPRINTF("%s: unknown ioctl code 0x%lx\n", __func__, cmd);
 		ret = ENOTTY;

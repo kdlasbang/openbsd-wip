@@ -31,12 +31,12 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/fcntl.h>
+#include <sys/vmm.h>
 
 #include <machine/specialreg.h>
 #include <machine/cpu.h>
 #include <machine/conf.h>
 #include <machine/bus.h>
-#include <machine/vmmvar.h>
 
 #include <dev/pv/pvvar.h>
 #include <dev/pv/pvreg.h>

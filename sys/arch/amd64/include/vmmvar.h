@@ -21,18 +21,6 @@
 #ifndef _MACHINE_VMMVAR_H_
 #define _MACHINE_VMMVAR_H_
 
-#define VMM_HV_SIGNATURE 	"OpenBSDVMM58"
-
-#define VMM_MAX_MEM_RANGES	16
-#define VMM_MAX_DISKS_PER_VM	4
-#define VMM_MAX_PATH_DISK	128
-#define VMM_MAX_PATH_CDROM	128
-#define VMM_MAX_NAME_LEN	64
-#define VMM_MAX_KERNEL_PATH	128
-#define VMM_MAX_VCPUS_PER_VM	64
-#define VMM_MAX_VM_MEM_SIZE	32768
-#define VMM_MAX_NICS_PER_VM	4
-
 #define VMM_PCI_MMIO_BAR_BASE	0xF0000000ULL
 #define VMM_PCI_MMIO_BAR_END	0xFFFFFFFFULL
 #define VMM_PCI_MMIO_BAR_SIZE	0x00010000
@@ -443,12 +431,6 @@ struct vcpu_reg_state {
 	struct vcpu_segment_info	vrs_idtr;
 };
 
-struct vm_mem_range {
-	paddr_t	vmr_gpa;
-	vaddr_t vmr_va;
-	size_t	vmr_size;
-};
-
 /*
  * struct vm_exit
  *
@@ -463,23 +445,6 @@ struct vm_exit {
 
 	struct vcpu_reg_state		vrs;
 	int				cpl;
-};
-
-struct vm_create_params {
-	/* Input parameters to VMM_IOC_CREATE */
-	size_t			vcp_nmemranges;
-	size_t			vcp_ncpus;
-	size_t			vcp_ndisks;
-	size_t			vcp_nnics;
-	struct vm_mem_range	vcp_memranges[VMM_MAX_MEM_RANGES];
-	char			vcp_disks[VMM_MAX_DISKS_PER_VM][VMM_MAX_PATH_DISK];
-	char			vcp_cdrom[VMM_MAX_PATH_CDROM];
-	char			vcp_name[VMM_MAX_NAME_LEN];
-	char			vcp_kernel[VMM_MAX_KERNEL_PATH];
-	uint8_t			vcp_macs[VMM_MAX_NICS_PER_VM][6];
-
-	/* Output parameter from VMM_IOC_CREATE */
-	uint32_t	vcp_id;
 };
 
 struct vm_run_params {
@@ -497,43 +462,11 @@ struct vm_run_params {
 	uint8_t		vrp_irqready;		/* ready for IRQ on entry */
 };
 
-struct vm_info_result {
-	/* Output parameters from VMM_IOC_INFO */
-	size_t		vir_memory_size;
-	size_t		vir_used_size;
-	size_t		vir_ncpus;
-	uint8_t		vir_vcpu_state[VMM_MAX_VCPUS_PER_VM];
-	pid_t		vir_creator_pid;
-	uint32_t	vir_id;
-	char		vir_name[VMM_MAX_NAME_LEN];
-};
-
-struct vm_info_params {
-	/* Input parameters to VMM_IOC_INFO */
-	size_t			vip_size;	/* Output buffer size */
-
-	/* Output Parameters from VMM_IOC_INFO */
-	size_t			 vip_info_ct;	/* # of entries returned */
-	struct vm_info_result	*vip_info;	/* Output buffer */
-};
-
-struct vm_terminate_params {
-	/* Input parameters to VMM_IOC_TERM */
-	uint32_t		vtp_vm_id;
-};
-
 struct vm_resetcpu_params {
 	/* Input parameters to VMM_IOC_RESETCPU */
 	uint32_t		vrp_vm_id;
 	uint32_t		vrp_vcpu_id;
 	struct vcpu_reg_state	vrp_init_state;
-};
-
-struct vm_intr_params {
-	/* Input parameters to VMM_IOC_INTR */
-	uint32_t		vip_vm_id;
-	uint32_t		vip_vcpu_id;
-	uint16_t		vip_intr;
 };
 
 #define VM_RWVMPARAMS_PVCLOCK_SYSTEM_GPA 0x1	/* read/write pvclock gpa */
@@ -579,19 +512,12 @@ struct vm_mprotect_ept_params {
 };
 
 /* IOCTL definitions */
-#define VMM_IOC_CREATE _IOWR('V', 1, struct vm_create_params) /* Create VM */
 #define VMM_IOC_RUN _IOWR('V', 2, struct vm_run_params) /* Run VCPU */
-#define VMM_IOC_INFO _IOWR('V', 3, struct vm_info_params) /* Get VM Info */
-#define VMM_IOC_TERM _IOW('V', 4, struct vm_terminate_params) /* Terminate VM */
 #define VMM_IOC_RESETCPU _IOW('V', 5, struct vm_resetcpu_params) /* Reset */
-#define VMM_IOC_INTR _IOW('V', 6, struct vm_intr_params) /* Intr pending */
 #define VMM_IOC_READREGS _IOWR('V', 7, struct vm_rwregs_params) /* Get regs */
 #define VMM_IOC_WRITEREGS _IOW('V', 8, struct vm_rwregs_params) /* Set regs */
-/* Get VM params */
 #define VMM_IOC_READVMPARAMS _IOWR('V', 9, struct vm_rwvmparams_params)
-/* Set VM params */
 #define VMM_IOC_WRITEVMPARAMS _IOW('V', 10, struct vm_rwvmparams_params)
-/* Control the protection of ept pages*/
 #define VMM_IOC_MPROTECT_EPT _IOW('V', 11, struct vm_mprotect_ept_params)
 
 /* CPUID masks */

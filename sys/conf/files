@@ -734,6 +734,7 @@ file kern/subr_percpu.c
 file kern/subr_poison.c			diagnostic
 file kern/subr_pool.c
 file kern/subr_tree.c
+file kern/subr_vmm.c			vmm
 file kern/dma_alloc.c
 file kern/subr_prf.c
 file kern/subr_prof.c
