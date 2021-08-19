@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-redraw.c,v 1.86 2021/08/11 09:05:21 nicm Exp $ */
+/* $OpenBSD: screen-redraw.c,v 1.88 2021/08/13 18:54:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -624,7 +624,7 @@ screen_redraw_screen(struct client *c)
 	}
 	if (c->overlay_draw != NULL && (flags & CLIENT_REDRAWOVERLAY)) {
 		log_debug("%s: redrawing overlay", c->name);
-		c->overlay_draw(c, &ctx);
+		c->overlay_draw(c, c->overlay_data, &ctx);
 	}
 
 	tty_reset(&c->tty);
@@ -690,7 +690,8 @@ screen_redraw_draw_borders_cell(struct screen_redraw_ctx *ctx, u_int i, u_int j)
 	struct grid_cell	 gc;
 	const struct grid_cell	*tmp;
 
-	if (c->overlay_check != NULL && !c->overlay_check(c, x, y))
+	if (c->overlay_check != NULL &&
+	    !c->overlay_check(c, c->overlay_data, x, y))
 		return;
 
 	cell_type = screen_redraw_check_cell(c, x, y, pane_status, &wp);
@@ -800,12 +801,13 @@ screen_redraw_draw_status(struct screen_redraw_ctx *ctx)
 static void
 screen_redraw_draw_pane(struct screen_redraw_ctx *ctx, struct window_pane *wp)
 {
-	struct client	*c = ctx->c;
-	struct window	*w = c->session->curw->window;
-	struct tty	*tty = &c->tty;
-	struct screen	*s;
-	struct grid_cell defaults;
-	u_int		 i, j, top, x, y, width;
+	struct client		*c = ctx->c;
+	struct window		*w = c->session->curw->window;
+	struct tty		*tty = &c->tty;
+	struct screen		*s = wp->screen;
+	struct colour_palette	*palette = &wp->palette;
+	struct grid_cell	 defaults;
+	u_int			 i, j, top, x, y, width;
 
 	log_debug("%s: %s @%u %%%u", __func__, c->name, w->id, wp->id);
 
@@ -815,8 +817,6 @@ screen_redraw_draw_pane(struct screen_redraw_ctx *ctx, struct window_pane *wp)
 		top = ctx->statuslines;
 	else
 		top = 0;
-
-	s = wp->screen;
 	for (j = 0; j < wp->sy; j++) {
 		if (wp->yoff + j < ctx->oy || wp->yoff + j >= ctx->oy + ctx->sy)
 			continue;
@@ -849,7 +849,6 @@ screen_redraw_draw_pane(struct screen_redraw_ctx *ctx, struct window_pane *wp)
 		    __func__, c->name, wp->id, i, j, x, y, width);
 
 		tty_default_colours(&defaults, wp);
-		tty_draw_line(tty, s, i, j, width, x, y, &defaults,
-		    wp->palette);
+		tty_draw_line(tty, s, i, j, width, x, y, &defaults, palette);
 	}
 }

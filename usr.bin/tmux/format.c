@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.288 2021/07/13 22:09:29 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.291 2021/08/12 19:47:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -929,6 +929,9 @@ format_cb_pane_fg(struct format_tree *ft)
 	struct window_pane	*wp = ft->wp;
 	struct grid_cell	 gc;
 
+	if (wp == NULL)
+		return (NULL);
+
 	tty_default_colours(&gc, wp);
 	return (xstrdup(colour_tostring(gc.fg)));
 }
@@ -939,6 +942,9 @@ format_cb_pane_bg(struct format_tree *ft)
 {
 	struct window_pane	*wp = ft->wp;
 	struct grid_cell	 gc;
+
+	if (wp == NULL)
+		return (NULL);
 
 	tty_default_colours(&gc, wp);
 	return (xstrdup(colour_tostring(gc.bg)));
@@ -3079,6 +3085,22 @@ format_free(struct format_tree *ft)
 	free(ft);
 }
 
+/* Log each format. */
+static void
+format_log_debug_cb(const char *key, const char *value, void *arg)
+{
+	const char	*prefix = arg;
+
+	log_debug("%s: %s=%s", prefix, key, value);
+}
+
+/* Log a format tree. */
+void
+format_log_debug(struct format_tree *ft, const char *prefix)
+{
+	format_each(ft, format_log_debug_cb, (void *)prefix);
+}
+
 /* Walk each format. */
 void
 format_each(struct format_tree *ft, void (*cb)(const char *, const char *,
@@ -4278,15 +4300,14 @@ format_replace(struct format_expand_state *es, const char *key, size_t keylen,
 			if (strcmp(found, condition) == 0) {
 				free(found);
 				found = xstrdup("");
-				format_log(es, "condition '%s' found: %s",
-				    condition, found);
-			} else {
 				format_log(es,
 				    "condition '%s' not found; assuming false",
 				    condition);
 			}
-		} else
-			format_log(es, "condition '%s' found", condition);
+		} else {
+			format_log(es, "condition '%s' found: %s", condition,
+			    found);
+		}
 
 		if (format_choose(es, cp + 1, &left, &right, 0) != 0) {
 			format_log(es, "condition '%s' syntax error: %s",

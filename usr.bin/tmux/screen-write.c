@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.196 2021/08/06 09:34:09 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.199 2021/08/17 08:44:52 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -171,15 +171,6 @@ screen_write_initctx(struct screen_write_ctx *ctx, struct tty_ctx *ttyctx,
 
 	memset(ttyctx, 0, sizeof *ttyctx);
 
-	if (ctx->wp != NULL) {
-		tty_default_colours(&ttyctx->defaults, ctx->wp);
-		ttyctx->palette = ctx->wp->palette;
-	} else {
-		memcpy(&ttyctx->defaults, &grid_default_cell,
-		    sizeof ttyctx->defaults);
-		ttyctx->palette = NULL;
-	}
-
 	ttyctx->s = s;
 	ttyctx->sx = screen_size_x(s);
 	ttyctx->sy = screen_size_y(s);
@@ -189,20 +180,37 @@ screen_write_initctx(struct screen_write_ctx *ctx, struct tty_ctx *ttyctx,
 	ttyctx->orlower = s->rlower;
 	ttyctx->orupper = s->rupper;
 
-	if (ctx->init_ctx_cb != NULL)
+	memcpy(&ttyctx->defaults, &grid_default_cell, sizeof ttyctx->defaults);
+	if (ctx->init_ctx_cb != NULL) {
 		ctx->init_ctx_cb(ctx, ttyctx);
-	else {
+		if (ttyctx->palette != NULL) {
+			ttyctx->defaults.fg = ttyctx->palette->fg;
+			ttyctx->defaults.bg = ttyctx->palette->bg;
+		}
+	} else {
 		ttyctx->redraw_cb = screen_write_redraw_cb;
-		if (ctx->wp == NULL)
-			ttyctx->set_client_cb = NULL;
-		else
+		if (ctx->wp != NULL) {
+			tty_default_colours(&ttyctx->defaults, ctx->wp);
+			ttyctx->palette = &ctx->wp->palette;
 			ttyctx->set_client_cb = screen_write_set_client_cb;
-		ttyctx->arg = ctx->wp;
+			ttyctx->arg = ctx->wp;
+		}
 	}
 
-	if (ctx->wp != NULL &&
-	    (~ctx->flags & SCREEN_WRITE_SYNC) &&
-	    (sync || ctx->wp != ctx->wp->window->active)) {
+	if (~ctx->flags & SCREEN_WRITE_SYNC) {
+		/*
+		 * For the active pane or for an overlay (no pane), we want to
+		 * only use synchronized updates if requested (commands that
+		 * move the cursor); for other panes, always use it, since the
+		 * cursor will have to move.
+		 */
+		if (ctx->wp != NULL) {
+			if (ctx->wp != ctx->wp->window->active)
+				ttyctx->num = 1;
+			else
+				ttyctx->num = sync;
+		} else
+			ttyctx->num = 0x10|sync;
 		tty_write(tty_cmd_syncstart, ttyctx);
 		ctx->flags |= SCREEN_WRITE_SYNC;
 	}
@@ -680,6 +688,7 @@ screen_write_box(struct screen_write_ctx *ctx, u_int nx, u_int ny)
 
 	memcpy(&gc, &grid_default_cell, sizeof gc);
 	gc.attr |= GRID_ATTR_CHARSET;
+	gc.flags |= GRID_FLAG_NOPALETTE;
 
 	screen_write_putc(ctx, &gc, 'l');
 	for (i = 1; i < nx - 1; i++)
@@ -1423,6 +1432,18 @@ screen_write_clearhistory(struct screen_write_ctx *ctx)
 	grid_clear_history(ctx->s->grid);
 }
 
+/* Force a full redraw. */
+void
+screen_write_fullredraw(struct screen_write_ctx *ctx)
+{
+	struct tty_ctx	 ttyctx;
+
+	screen_write_collect_flush(ctx, 0, __func__);
+
+	screen_write_initctx(ctx, &ttyctx, 1);
+	ttyctx.redraw_cb(&ttyctx);
+}
+
 /* Trim collected items. */
 static struct screen_write_citem *
 screen_write_collect_trim(struct screen_write_ctx *ctx, u_int y, u_int x,
@@ -1765,13 +1786,13 @@ screen_write_cell(struct screen_write_ctx *ctx, const struct grid_cell *gc)
 	if (width == 0 || (ctx->flags & SCREEN_WRITE_ZWJ)) {
 		ctx->flags &= ~SCREEN_WRITE_ZWJ;
 		screen_write_collect_flush(ctx, 0, __func__);
-		if ((gc = screen_write_combine(ctx, ud, &xx)) != 0) {
+		if ((gc = screen_write_combine(ctx, ud, &xx)) != NULL) {
 			cx = s->cx; cy = s->cy;
 			screen_write_set_cursor(ctx, xx, s->cy);
 			screen_write_initctx(ctx, &ttyctx, 0);
 			ttyctx.cell = gc;
 			tty_write(tty_cmd_cell, &ttyctx);
-			s->cx = xx + gc->data.width; s->cy = cy;
+			s->cx = cx; s->cy = cy;
 		}
 		return;
 	}

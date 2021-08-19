@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmd.c,v 1.137 2021/08/07 13:37:50 krw Exp $	*/
+/*	$OpenBSD: cmd.c,v 1.139 2021/08/15 13:45:42 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -482,21 +482,7 @@ Xexit(char *args, struct mbr *mbr)
 int
 Xhelp(char *args, struct mbr *mbr)
 {
-	char			 help[80];
-	char			*mbrstr;
-	int			 i;
-
-	for (i = 0; cmd_table[i].cmd_name != NULL; i++) {
-		strlcpy(help, cmd_table[i].cmd_help, sizeof(help));
-		if (letoh64(gh.gh_sig) == GPTSIGNATURE) {
-			if (cmd_table[i].cmd_gpt == 0)
-				continue;
-			mbrstr = strstr(help, "MBR");
-			if (mbrstr)
-				memcpy(mbrstr, "GPT", 3);
-		}
-		printf("\t%s\t\t%s\n", cmd_table[i].cmd_name, help);
-	}
+	USER_help();
 
 	return CMD_CONT;
 }
@@ -600,9 +586,7 @@ ask_num(const char *str, int dflt, int low, int high)
 
 	do {
 		printf("%s [%d - %d]: [%d] ", str, low, high, dflt);
-
-		if (string_from_line(lbuf, sizeof(lbuf)))
-			errx(1, "eof");
+		string_from_line(lbuf, sizeof(lbuf));
 
 		if (lbuf[0] == '\0') {
 			num = dflt;
@@ -626,9 +610,7 @@ ask_pid(const int dflt, struct uuid *guid)
 	do {
 		printf("Partition id ('0' to disable) [01 - FF]: [%X] ", dflt);
 		printf("(? for help) ");
-
-		if (string_from_line(lbuf, sizeof(lbuf)))
-			errx(1, "eof");
+		string_from_line(lbuf, sizeof(lbuf));
 
 		if (lbuf[0] == '?') {
 			PRT_printall();
@@ -668,8 +650,7 @@ ask_string(const char *prompt, const char *oval)
 
 	buf[0] = '\0';
 	printf("%s: [%s] ", prompt, oval ? oval : "");
-	if (string_from_line(buf, sizeof(buf)))
-		errx(1, "eof");
+	string_from_line(buf, sizeof(buf));
 
 	if (buf[0] == '\0' && oval)
 		strlcpy(buf, oval, sizeof(buf));

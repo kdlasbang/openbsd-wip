@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.148 2021/08/06 09:19:02 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.150 2021/08/12 20:44:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -81,7 +81,7 @@ static const char *options_table_extended_keys_list[] = {
 
 /* Status line format. */
 #define OPTIONS_TABLE_STATUS_FORMAT1 \
-	"#[align=left range=left #{status-left-style}]" \
+	"#[align=left range=left #{E:status-left-style}]" \
 	"#[push-default]" \
 	"#{T;=/#{status-left-length}:status-left}" \
 	"#[pop-default]" \
@@ -90,20 +90,20 @@ static const char *options_table_extended_keys_list[] = {
 	"#[list=left-marker]<#[list=right-marker]>#[list=on]" \
 	"#{W:" \
 		"#[range=window|#{window_index} " \
-			"#{window-status-style}" \
+			"#{E:window-status-style}" \
 			"#{?#{&&:#{window_last_flag}," \
-				"#{!=:#{window-status-last-style},default}}, " \
-				"#{window-status-last-style}," \
+				"#{!=:#{E:window-status-last-style},default}}, " \
+				"#{E:window-status-last-style}," \
 			"}" \
 			"#{?#{&&:#{window_bell_flag}," \
-				"#{!=:#{window-status-bell-style},default}}, " \
-				"#{window-status-bell-style}," \
+				"#{!=:#{E:window-status-bell-style},default}}, " \
+				"#{E:window-status-bell-style}," \
 				"#{?#{&&:#{||:#{window_activity_flag}," \
 					     "#{window_silence_flag}}," \
 					"#{!=:" \
-					"#{window-status-activity-style}," \
+					"#{E:window-status-activity-style}," \
 					"default}}, " \
-					"#{window-status-activity-style}," \
+					"#{E:window-status-activity-style}," \
 				"}" \
 			"}" \
 		"]" \
@@ -114,23 +114,23 @@ static const char *options_table_extended_keys_list[] = {
 		"#{?window_end_flag,,#{window-status-separator}}" \
 	"," \
 		"#[range=window|#{window_index} list=focus " \
-			"#{?#{!=:#{window-status-current-style},default}," \
-				"#{window-status-current-style}," \
-				"#{window-status-style}" \
+			"#{?#{!=:#{E:window-status-current-style},default}," \
+				"#{E:window-status-current-style}," \
+				"#{E:window-status-style}" \
 			"}" \
 			"#{?#{&&:#{window_last_flag}," \
-				"#{!=:#{window-status-last-style},default}}, " \
-				"#{window-status-last-style}," \
+				"#{!=:#{E:window-status-last-style},default}}, " \
+				"#{E:window-status-last-style}," \
 			"}" \
 			"#{?#{&&:#{window_bell_flag}," \
-				"#{!=:#{window-status-bell-style},default}}, " \
-				"#{window-status-bell-style}," \
+				"#{!=:#{E:window-status-bell-style},default}}, " \
+				"#{E:window-status-bell-style}," \
 				"#{?#{&&:#{||:#{window_activity_flag}," \
 					     "#{window_silence_flag}}," \
 					"#{!=:" \
-					"#{window-status-activity-style}," \
+					"#{E:window-status-activity-style}," \
 					"default}}, " \
-					"#{window-status-activity-style}," \
+					"#{E:window-status-activity-style}," \
 				"}" \
 			"}" \
 		"]" \
@@ -140,7 +140,7 @@ static const char *options_table_extended_keys_list[] = {
 		"#[norange list=on default]" \
 		"#{?window_end_flag,,#{window-status-separator}}" \
 	"}" \
-	"#[nolist align=right range=right #{status-right-style}]" \
+	"#[nolist align=right range=right #{E:status-right-style}]" \
 	"#[push-default]" \
 	"#{T;=/#{status-right-length}:status-right}" \
 	"#[pop-default]" \
@@ -185,6 +185,7 @@ const struct options_name_map options_other_names[] = {
 	{ "display-panes-color", "display-panes-colour" },
 	{ "display-panes-active-color", "display-panes-active-colour" },
 	{ "clock-mode-color", "clock-mode-colour" },
+	{ "pane-colors", "pane-colours" },
 	{ NULL, NULL }
 };
 
@@ -971,6 +972,14 @@ const struct options_table_entry options_table[] = {
 	  .flags = OPTIONS_TABLE_IS_STYLE,
 	  .separator = ",",
 	  .text = "Style of the pane status lines."
+	},
+
+	{ .name = "pane-colours",
+	  .type = OPTIONS_TABLE_COLOUR,
+	  .scope = OPTIONS_TABLE_WINDOW|OPTIONS_TABLE_PANE,
+	  .default_str = "",
+	  .flags = OPTIONS_TABLE_IS_ARRAY,
+	  .text = "The default colour palette for colours zero to 255."
 	},
 
 	{ .name = "remain-on-exit",
