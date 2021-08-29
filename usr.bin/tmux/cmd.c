@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd.c,v 1.164 2021/06/10 07:50:03 nicm Exp $ */
+/* $OpenBSD: cmd.c,v 1.172 2021/08/27 17:25:55 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -222,10 +222,6 @@ struct cmd {
 	char			 *file;
 	u_int			  line;
 
-	char			 *alias;
-	int			  argc;
-	char			**argv;
-
 	TAILQ_ENTRY(cmd)	  qentry;
 };
 TAILQ_HEAD(cmds, cmd);
@@ -252,7 +248,7 @@ cmd_log_argv(int argc, char **argv, const char *fmt, ...)
 
 /* Prepend to an argument vector. */
 void
-cmd_prepend_argv(int *argc, char ***argv, char *arg)
+cmd_prepend_argv(int *argc, char ***argv, const char *arg)
 {
 	char	**new_argv;
 	int	  i;
@@ -269,7 +265,7 @@ cmd_prepend_argv(int *argc, char ***argv, char *arg)
 
 /* Append to an argument vector. */
 void
-cmd_append_argv(int *argc, char ***argv, char *arg)
+cmd_append_argv(int *argc, char ***argv, const char *arg)
 {
 	*argv = xreallocarray(*argv, (*argc) + 1, sizeof **argv);
 	(*argv)[(*argc)++] = xstrdup(arg);
@@ -500,31 +496,32 @@ ambiguous:
 
 /* Parse a single command from an argument vector. */
 struct cmd *
-cmd_parse(int argc, char **argv, const char *file, u_int line, char **cause)
+cmd_parse(struct args_value *values, u_int count, const char *file, u_int line,
+    char **cause)
 {
 	const struct cmd_entry	*entry;
-	const char		*name;
 	struct cmd		*cmd;
 	struct args		*args;
+	char			*error;
 
-	if (argc == 0) {
+	if (count == 0 || values[0].type != ARGS_STRING) {
 		xasprintf(cause, "no command");
 		return (NULL);
 	}
-	name = argv[0];
-
-	entry = cmd_find(name, cause);
+	entry = cmd_find(values[0].string, cause);
 	if (entry == NULL)
 		return (NULL);
-	cmd_log_argv(argc, argv, "%s: %s", __func__, entry->name);
 
-	args = args_parse(entry->args.template, argc, argv);
-	if (args == NULL)
-		goto usage;
-	if (entry->args.lower != -1 && args->argc < entry->args.lower)
-		goto usage;
-	if (entry->args.upper != -1 && args->argc > entry->args.upper)
-		goto usage;
+	args = args_parse(&entry->args, values, count, &error);
+	if (args == NULL && error == NULL) {
+		xasprintf(cause, "usage: %s %s", entry->name, entry->usage);
+		return (NULL);
+	}
+	if (args == NULL) {
+		xasprintf(cause, "command %s: %s", entry->name, error);
+		free(error);
+		return (NULL);
+	}
 
 	cmd = xcalloc(1, sizeof *cmd);
 	cmd->entry = entry;
@@ -534,30 +531,34 @@ cmd_parse(int argc, char **argv, const char *file, u_int line, char **cause)
 		cmd->file = xstrdup(file);
 	cmd->line = line;
 
-	cmd->alias = NULL;
-	cmd->argc = argc;
-	cmd->argv = cmd_copy_argv(argc, argv);
-
 	return (cmd);
-
-usage:
-	if (args != NULL)
-		args_free(args);
-	xasprintf(cause, "usage: %s %s", entry->name, entry->usage);
-	return (NULL);
 }
 
 /* Free a command. */
 void
 cmd_free(struct cmd *cmd)
 {
-	free(cmd->alias);
-	cmd_free_argv(cmd->argc, cmd->argv);
-
 	free(cmd->file);
 
 	args_free(cmd->args);
 	free(cmd);
+}
+
+/* Copy a command. */
+struct cmd *
+cmd_copy(struct cmd *cmd, int argc, char **argv)
+{
+	struct cmd	*new_cmd;
+
+	new_cmd = xcalloc(1, sizeof *new_cmd);
+	new_cmd->entry = cmd->entry;
+	new_cmd->args = args_copy(cmd->args, argc, argv);
+
+	if (cmd->file != NULL)
+		new_cmd->file = xstrdup(cmd->file);
+	new_cmd->line = cmd->line;
+
+	return (new_cmd);
 }
 
 /* Get a command as a string. */
@@ -598,7 +599,18 @@ cmd_list_append(struct cmd_list *cmdlist, struct cmd *cmd)
 	TAILQ_INSERT_TAIL(cmdlist->list, cmd, qentry);
 }
 
-/* Move all commands from one command list to another */
+/* Append all commands from one list to another.  */
+void
+cmd_list_append_all(struct cmd_list *cmdlist, struct cmd_list *from)
+{
+	struct cmd	*cmd;
+
+	TAILQ_FOREACH(cmd, from->list, qentry)
+		cmd->group = cmdlist->group;
+	TAILQ_CONCAT(cmdlist->list, from->list, qentry);
+}
+
+/* Move all commands from one command list to another. */
 void
 cmd_list_move(struct cmd_list *cmdlist, struct cmd_list *from)
 {
@@ -621,6 +633,37 @@ cmd_list_free(struct cmd_list *cmdlist)
 	}
 	free(cmdlist->list);
 	free(cmdlist);
+}
+
+/* Copy a command list, expanding %s in arguments. */
+struct cmd_list *
+cmd_list_copy(struct cmd_list *cmdlist, int argc, char **argv)
+{
+	struct cmd	*cmd;
+	struct cmd_list	*new_cmdlist;
+	struct cmd	*new_cmd;
+	u_int		 group = cmdlist->group;
+	char		*s;
+
+	s = cmd_list_print(cmdlist, 0);
+	log_debug("%s: %s", __func__, s);
+	free(s);
+
+	new_cmdlist = cmd_list_new();
+	TAILQ_FOREACH(cmd, cmdlist->list, qentry) {
+		if (cmd->group != group) {
+			new_cmdlist->group = cmd_list_next_group++;
+			group = cmd->group;
+		}
+		new_cmd = cmd_copy(cmd, argc, argv);
+		cmd_list_append(new_cmdlist, new_cmd);
+	}
+
+	s = cmd_list_print(new_cmdlist, 0);
+	log_debug("%s: %s", __func__, s);
+	free(s);
+
+	return (new_cmdlist);
 }
 
 /* Get a command list as a string. */
