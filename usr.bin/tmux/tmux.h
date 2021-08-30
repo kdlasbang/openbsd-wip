@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.1123 2021/08/13 23:05:40 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.1139 2021/08/27 17:25:55 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -37,7 +37,7 @@
 extern char   **environ;
 
 struct args;
-struct args_value;
+struct args_command_state;
 struct client;
 struct cmd;
 struct cmd_find_state;
@@ -998,6 +998,8 @@ struct window {
 
 	u_int		 sx;
 	u_int		 sy;
+	u_int		 manual_sx;
+	u_int		 manual_sy;
 	u_int		 xpixel;
 	u_int		 ypixel;
 
@@ -1356,13 +1358,43 @@ struct message_entry {
 };
 TAILQ_HEAD(message_list, message_entry);
 
-/* Parsed arguments structures. */
+/* Argument type. */
+enum args_type {
+	ARGS_NONE,
+	ARGS_STRING,
+	ARGS_COMMANDS
+};
+
+/* Argument value. */
+struct args_value {
+	enum args_type		 type;
+	union {
+		char		*string;
+		struct cmd_list	*cmdlist;
+	};
+	char			*cached;
+	TAILQ_ENTRY(args_value)	 entry;
+};
+
+/* Arguments set. */
 struct args_entry;
 RB_HEAD(args_tree, args_entry);
-struct args {
-	struct args_tree	  tree;
-	int			  argc;
-	char			**argv;
+
+/* Arguments parsing type. */
+enum args_parse_type {
+	ARGS_PARSE_INVALID,
+	ARGS_PARSE_STRING,
+	ARGS_PARSE_COMMANDS_OR_STRING,
+	ARGS_PARSE_COMMANDS
+};
+
+/* Arguments parsing state. */
+typedef enum args_parse_type (*args_parse_cb)(struct args *, u_int, char **);
+struct args_parse {
+	const char	*template;
+	int		 lower;
+	int		 upper;
+	args_parse_cb	 cb;
 };
 
 /* Command find structures. */
@@ -1408,7 +1440,6 @@ enum cmd_retval {
 
 /* Command parse result. */
 enum cmd_parse_status {
-	CMD_PARSE_EMPTY,
 	CMD_PARSE_ERROR,
 	CMD_PARSE_SUCCESS
 };
@@ -1453,11 +1484,7 @@ struct cmd_entry {
 	const char		*name;
 	const char		*alias;
 
-	struct {
-		const char	*template;
-		int		 lower;
-		int		 upper;
-	} args;
+	struct args_parse	 args;
 	const char		*usage;
 
 	struct cmd_entry_flag	 source;
@@ -1530,6 +1557,10 @@ RB_HEAD(client_files, client_file);
 struct client_window {
 	u_int			 window;
 	struct window_pane	*pane;
+
+	u_int			 sx;
+	u_int			 sy;
+
 	RB_ENTRY(client_window)	 entry;
 };
 RB_HEAD(client_windows, client_window);
@@ -1625,6 +1656,7 @@ struct client {
 #define CLIENT_ACTIVEPANE 0x80000000ULL
 #define CLIENT_CONTROL_PAUSEAFTER 0x100000000ULL
 #define CLIENT_CONTROL_WAITEXIT 0x200000000ULL
+#define CLIENT_WINDOWSIZECHANGED 0x400000000ULL
 #define CLIENT_ALLREDRAWFLAGS		\
 	(CLIENT_REDRAWWINDOW|		\
 	 CLIENT_REDRAWSTATUS|		\
@@ -2181,8 +2213,15 @@ void		tty_keys_free(struct tty *);
 int		tty_keys_next(struct tty *);
 
 /* arguments.c */
-void		 args_set(struct args *, u_char, const char *);
-struct args	*args_parse(const char *, int, char **);
+void		 args_set(struct args *, u_char, struct args_value *);
+struct args 	*args_create(void);
+struct args	*args_parse(const struct args_parse *, struct args_value *,
+		     u_int, char **);
+struct args	*args_copy(struct args *, int, char **);
+void		 args_to_vector(struct args *, int *, char ***);
+struct args_value *args_from_vector(int, char **);
+void		 args_free_value(struct args_value *);
+void		 args_free_values(struct args_value *, u_int);
 void		 args_free(struct args *);
 char		*args_print(struct args *);
 char		*args_escape(const char *);
@@ -2190,8 +2229,20 @@ int		 args_has(struct args *, u_char);
 const char	*args_get(struct args *, u_char);
 u_char		 args_first(struct args *, struct args_entry **);
 u_char		 args_next(struct args_entry **);
-const char	*args_first_value(struct args *, u_char, struct args_value **);
-const char	*args_next_value(struct args_value **);
+u_int		 args_count(struct args *);
+struct args_value *args_values(struct args *);
+struct args_value *args_value(struct args *, u_int);
+const char	*args_string(struct args *, u_int);
+struct cmd_list	*args_make_commands_now(struct cmd *, struct cmdq_item *,
+		     u_int);
+struct args_command_state *args_make_commands_prepare(struct cmd *,
+		     struct cmdq_item *, u_int, const char *, int, int);
+struct cmd_list *args_make_commands(struct args_command_state *, int, char **,
+		     char **);
+void		 args_make_commands_free(struct args_command_state *);
+char		*args_make_commands_get_command(struct args_command_state *);
+struct args_value *args_first_value(struct args *, u_char);
+struct args_value *args_next_value(struct args_value *);
 long long	 args_strtonum(struct args *, u_char, long long, long long,
 		     char **);
 long long	 args_percentage(struct args *, u_char, long long,
@@ -2230,8 +2281,8 @@ int		 cmd_find_from_nothing(struct cmd_find_state *, int);
 /* cmd.c */
 extern const struct cmd_entry *cmd_table[];
 void printflike(3, 4) cmd_log_argv(int, char **, const char *, ...);
-void		 cmd_prepend_argv(int *, char ***, char *);
-void		 cmd_append_argv(int *, char ***, char *);
+void		 cmd_prepend_argv(int *, char ***, const char *);
+void		 cmd_append_argv(int *, char ***, const char *);
 int		 cmd_pack_argv(int, char **, char *, size_t);
 int		 cmd_unpack_argv(char *, size_t, int, char ***);
 char	       **cmd_copy_argv(int, char **);
@@ -2242,11 +2293,15 @@ const struct cmd_entry *cmd_get_entry(struct cmd *);
 struct args	*cmd_get_args(struct cmd *);
 u_int		 cmd_get_group(struct cmd *);
 void		 cmd_get_source(struct cmd *, const char **, u_int *);
-struct cmd	*cmd_parse(int, char **, const char *, u_int, char **);
+struct cmd	*cmd_parse(struct args_value *, u_int, const char *, u_int,
+		     char **);
+struct cmd	*cmd_copy(struct cmd *, int, char **);
 void		 cmd_free(struct cmd *);
 char		*cmd_print(struct cmd *);
 struct cmd_list	*cmd_list_new(void);
+struct cmd_list	*cmd_list_copy(struct cmd_list *, int, char **);
 void		 cmd_list_append(struct cmd_list *, struct cmd *);
+void		 cmd_list_append_all(struct cmd_list *, struct cmd_list *);
 void		 cmd_list_move(struct cmd_list *, struct cmd_list *);
 void		 cmd_list_free(struct cmd_list *);
 char		*cmd_list_print(struct cmd_list *, int);
@@ -2278,7 +2333,7 @@ enum cmd_parse_status cmd_parse_and_append(const char *,
 		     struct cmdq_state *, char **);
 struct cmd_parse_result *cmd_parse_from_buffer(const void *, size_t,
 		     struct cmd_parse_input *);
-struct cmd_parse_result *cmd_parse_from_arguments(int, char **,
+struct cmd_parse_result *cmd_parse_from_arguments(struct args_value *, u_int,
 		     struct cmd_parse_input *);
 
 /* cmd-queue.c */
@@ -2308,7 +2363,7 @@ struct cmdq_item *cmdq_get_callback1(const char *, cmdq_cb, void *);
 struct cmdq_item *cmdq_get_error(const char *);
 struct cmdq_item *cmdq_insert_after(struct cmdq_item *, struct cmdq_item *);
 struct cmdq_item *cmdq_append(struct client *, struct cmdq_item *);
-void		 cmdq_insert_hook(struct session *, struct cmdq_item *,
+void printflike(4, 5) cmdq_insert_hook(struct session *, struct cmdq_item *,
 		     struct cmd_find_state *, const char *, ...);
 void		 cmdq_continue(struct cmdq_item *);
 u_int		 cmdq_next(struct client *);
@@ -2364,7 +2419,7 @@ void	 file_fire_done(struct client_file *);
 void	 file_fire_read(struct client_file *);
 int	 file_can_print(struct client *);
 void printflike(2, 3) file_print(struct client *, const char *, ...);
-void	 file_vprint(struct client *, const char *, va_list);
+void printflike(2, 0) file_vprint(struct client *, const char *, va_list);
 void	 file_print_buffer(struct client *, void *, size_t);
 void printflike(2, 3) file_error(struct client *, const char *, ...);
 void	 file_write(struct client *, const char *, int, const void *, size_t,
@@ -2423,6 +2478,8 @@ void	 server_client_push_stderr(struct client *);
 const char *server_client_get_cwd(struct client *, struct session *);
 void	 server_client_set_flags(struct client *, const char *);
 const char *server_client_get_flags(struct client *);
+struct client_window *server_client_get_client_window(struct client *, u_int);
+struct client_window *server_client_add_client_window(struct client *, u_int);
 struct window_pane *server_client_get_pane(struct client *);
 void	 server_client_set_pane(struct client *, struct window_pane *);
 void	 server_client_remove_pane(struct window_pane *);
@@ -2464,7 +2521,8 @@ struct style_range *status_get_range(struct client *, u_int, u_int);
 void	 status_init(struct client *);
 void	 status_free(struct client *);
 int	 status_redraw(struct client *);
-void status_message_set(struct client *, int, int, int, const char *, ...);
+void printflike(5, 6) status_message_set(struct client *, int, int, int,
+	     const char *, ...);
 void	 status_message_clear(struct client *);
 int	 status_message_redraw(struct client *);
 void	 status_prompt_set(struct client *, struct cmd_find_state *,
@@ -2619,7 +2677,7 @@ void printflike(3, 4) screen_write_puts(struct screen_write_ctx *,
 	     const struct grid_cell *, const char *, ...);
 void printflike(4, 5) screen_write_nputs(struct screen_write_ctx *,
 	     ssize_t, const struct grid_cell *, const char *, ...);
-void	 screen_write_vnputs(struct screen_write_ctx *, ssize_t,
+void printflike(4, 0) screen_write_vnputs(struct screen_write_ctx *, ssize_t,
 	     const struct grid_cell *, const char *, va_list);
 void	 screen_write_putc(struct screen_write_ctx *, const struct grid_cell *,
 	     u_char);
@@ -2888,7 +2946,8 @@ extern const struct window_mode window_client_mode;
 extern const struct window_mode window_copy_mode;
 extern const struct window_mode window_view_mode;
 void printflike(2, 3) window_copy_add(struct window_pane *, const char *, ...);
-void		 window_copy_vadd(struct window_pane *, const char *, va_list);
+void printflike(2, 0) window_copy_vadd(struct window_pane *, const char *,
+		     va_list);
 void		 window_copy_pageup(struct window_pane *, int);
 void		 window_copy_start_drag(struct client *, struct mouse_event *);
 char		*window_copy_get_word(struct window_pane *, u_int, u_int);

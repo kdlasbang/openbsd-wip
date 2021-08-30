@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwx.c,v 1.92 2021/08/19 06:02:04 stsp Exp $	*/
+/*	$OpenBSD: if_iwx.c,v 1.98 2021/08/29 20:31:18 gnezdo Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -261,10 +261,10 @@ int	iwx_poll_bit(struct iwx_softc *, int, uint32_t, uint32_t, int);
 int	iwx_nic_lock(struct iwx_softc *);
 void	iwx_nic_assert_locked(struct iwx_softc *);
 void	iwx_nic_unlock(struct iwx_softc *);
-void	iwx_set_bits_mask_prph(struct iwx_softc *, uint32_t, uint32_t,
+int	iwx_set_bits_mask_prph(struct iwx_softc *, uint32_t, uint32_t,
 	    uint32_t);
-void	iwx_set_bits_prph(struct iwx_softc *, uint32_t, uint32_t);
-void	iwx_clear_bits_prph(struct iwx_softc *, uint32_t, uint32_t);
+int	iwx_set_bits_prph(struct iwx_softc *, uint32_t, uint32_t);
+int	iwx_clear_bits_prph(struct iwx_softc *, uint32_t, uint32_t);
 int	iwx_dma_contig_alloc(bus_dma_tag_t, struct iwx_dma_info *, bus_size_t,
 	    bus_size_t);
 void	iwx_dma_contig_free(struct iwx_dma_info *);
@@ -284,7 +284,7 @@ void	iwx_disable_interrupts(struct iwx_softc *);
 void	iwx_ict_reset(struct iwx_softc *);
 int	iwx_set_hw_ready(struct iwx_softc *);
 int	iwx_prepare_card_hw(struct iwx_softc *);
-void	iwx_force_power_gating(struct iwx_softc *);
+int	iwx_force_power_gating(struct iwx_softc *);
 void	iwx_apm_config(struct iwx_softc *);
 int	iwx_apm_init(struct iwx_softc *);
 void	iwx_apm_stop(struct iwx_softc *);
@@ -814,10 +814,14 @@ iwx_apply_debug_destination(struct iwx_softc *sc)
 			iwx_write_prph(sc, addr, val);
 			break;
 		case PRPH_SETBIT:
-			iwx_set_bits_prph(sc, addr, (1 << val));
+			err = iwx_set_bits_prph(sc, addr, (1 << val));
+			if (err)
+				return err;
 			break;
 		case PRPH_CLEARBIT:
-			iwx_clear_bits_prph(sc, addr, (1 << val));
+			err = iwx_clear_bits_prph(sc, addr, (1 << val));
+			if (err)
+				return err;
 			break;
 		case PRPH_BLOCKBIT:
 			if (iwx_read_prph(sc, addr) & (1 << val))
@@ -1547,31 +1551,32 @@ iwx_nic_unlock(struct iwx_softc *sc)
 		printf("%s: NIC already unlocked\n", DEVNAME(sc));
 }
 
-void
+int
 iwx_set_bits_mask_prph(struct iwx_softc *sc, uint32_t reg, uint32_t bits,
     uint32_t mask)
 {
 	uint32_t val;
 
-	/* XXX: no error path? */
 	if (iwx_nic_lock(sc)) {
 		val = iwx_read_prph(sc, reg) & mask;
 		val |= bits;
 		iwx_write_prph(sc, reg, val);
 		iwx_nic_unlock(sc);
+		return 0;
 	}
+	return EBUSY;
 }
 
-void
+int
 iwx_set_bits_prph(struct iwx_softc *sc, uint32_t reg, uint32_t bits)
 {
-	iwx_set_bits_mask_prph(sc, reg, bits, ~0);
+	return iwx_set_bits_mask_prph(sc, reg, bits, ~0);
 }
 
-void
+int
 iwx_clear_bits_prph(struct iwx_softc *sc, uint32_t reg, uint32_t bits)
 {
-	iwx_set_bits_mask_prph(sc, reg, 0, ~bits);
+	return iwx_set_bits_mask_prph(sc, reg, 0, ~bits);
 }
 
 int
@@ -2044,6 +2049,7 @@ int
 iwx_prepare_card_hw(struct iwx_softc *sc)
 {
 	int t = 0;
+	int ntries;
 
 	if (iwx_set_hw_ready(sc))
 		return 0;
@@ -2052,33 +2058,42 @@ iwx_prepare_card_hw(struct iwx_softc *sc)
 	    IWX_CSR_RESET_LINK_PWR_MGMT_DISABLED);
 	DELAY(1000);
  
+	for (ntries = 0; ntries < 10; ntries++) {
+		/* If HW is not ready, prepare the conditions to check again */
+		IWX_SETBITS(sc, IWX_CSR_HW_IF_CONFIG_REG,
+		    IWX_CSR_HW_IF_CONFIG_REG_PREPARE);
 
-	/* If HW is not ready, prepare the conditions to check again */
-	IWX_SETBITS(sc, IWX_CSR_HW_IF_CONFIG_REG,
-	    IWX_CSR_HW_IF_CONFIG_REG_PREPARE);
-
-	do {
-		if (iwx_set_hw_ready(sc))
-			return 0;
-		DELAY(200);
-		t += 200;
-	} while (t < 150000);
+		do {
+			if (iwx_set_hw_ready(sc))
+				return 0;
+			DELAY(200);
+			t += 200;
+		} while (t < 150000);
+		DELAY(25000);
+	}
 
 	return ETIMEDOUT;
 }
 
-void
+int
 iwx_force_power_gating(struct iwx_softc *sc)
 {
-	iwx_set_bits_prph(sc, IWX_HPM_HIPM_GEN_CFG,
+	int err;
+
+	err = iwx_set_bits_prph(sc, IWX_HPM_HIPM_GEN_CFG,
 	    IWX_HPM_HIPM_GEN_CFG_CR_FORCE_ACTIVE);
+	if (err)
+		return err;
 	DELAY(20);
-	iwx_set_bits_prph(sc, IWX_HPM_HIPM_GEN_CFG,
+	err = iwx_set_bits_prph(sc, IWX_HPM_HIPM_GEN_CFG,
 	    IWX_HPM_HIPM_GEN_CFG_CR_PG_EN |
 	    IWX_HPM_HIPM_GEN_CFG_CR_SLP_EN);
+	if (err)
+		return err;
 	DELAY(20);
-	iwx_clear_bits_prph(sc, IWX_HPM_HIPM_GEN_CFG,
+	err = iwx_clear_bits_prph(sc, IWX_HPM_HIPM_GEN_CFG,
 	    IWX_HPM_HIPM_GEN_CFG_CR_FORCE_ACTIVE);
+	return err;
 }
 
 void
@@ -2339,7 +2354,9 @@ iwx_start_hw(struct iwx_softc *sc)
 			return ETIMEDOUT;
 		}
 
-		iwx_force_power_gating(sc);
+		err = iwx_force_power_gating(sc);
+		if (err)
+			return err;
 
 		/* Reset the entire device */
 		IWX_SETBITS(sc, IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_SW_RESET);
@@ -3358,7 +3375,7 @@ iwx_load_firmware(struct iwx_softc *sc)
 		err = tsleep_nsec(&sc->sc_uc, 0, "iwxuc", MSEC_TO_NSEC(100));
 	}
 	if (err || !sc->sc_uc.uc_ok)
-		printf("%s: could not load firmware\n", DEVNAME(sc));
+		printf("%s: could not load firmware, %d\n", DEVNAME(sc), err);
 
 	iwx_ctxt_info_free_fw_img(sc);
 
@@ -5594,7 +5611,7 @@ iwx_fill_probe_req(struct iwx_softc *sc, struct iwx_scan_probe_req *preq)
 
 	memset(preq, 0, sizeof(*preq));
 
-	if (remain < sizeof(*wh) + 2 + ic->ic_des_esslen)
+	if (remain < sizeof(*wh) + 2)
 		return ENOBUFS;
 
 	/*
@@ -9264,15 +9281,6 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, 0x40);
 	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
 
-	/* Enable bus-mastering and hardware bug workaround. */
-	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, PCI_COMMAND_STATUS_REG);
-	reg |= PCI_COMMAND_MASTER_ENABLE;
-	/* if !MSI */
-	if (reg & PCI_COMMAND_INTERRUPT_DISABLE) {
-		reg &= ~PCI_COMMAND_INTERRUPT_DISABLE;
-	}
-	pci_conf_write(sc->sc_pct, sc->sc_pcitag, PCI_COMMAND_STATUS_REG, reg);
-
 	memtype = pci_mapreg_type(pa->pa_pc, pa->pa_tag, PCI_MAPREG_START);
 	err = pci_mapreg_map(pa, PCI_MAPREG_START, memtype, 0,
 	    &sc->sc_st, &sc->sc_sh, NULL, &sc->sc_sz, 0);
@@ -9283,9 +9291,18 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 
 	if (pci_intr_map_msix(pa, 0, &ih) == 0) {
 		sc->sc_msix = 1;
-	} else if (pci_intr_map_msi(pa, &ih) && pci_intr_map(pa, &ih)) {
-		printf("%s: can't map interrupt\n", DEVNAME(sc));
-		return;
+	} else if (pci_intr_map_msi(pa, &ih)) {
+		if (pci_intr_map(pa, &ih)) {
+			printf("%s: can't map interrupt\n", DEVNAME(sc));
+			return;
+		}
+		/* Hardware bug workaround. */
+		reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag,
+		    PCI_COMMAND_STATUS_REG);
+		if (reg & PCI_COMMAND_INTERRUPT_DISABLE)
+			reg &= ~PCI_COMMAND_INTERRUPT_DISABLE;
+		pci_conf_write(sc->sc_pct, sc->sc_pcitag,
+		    PCI_COMMAND_STATUS_REG, reg);
 	}
 
 	intrstr = pci_intr_string(sc->sc_pct, ih);
@@ -9351,15 +9368,15 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_uhb_supported = 0;
 		break;
 	case PCI_PRODUCT_INTEL_WL_22500_4:
-	    sc->sc_fwname = "iwx-Qu-c0-hr-b0-63";
-	    sc->sc_device_family = IWX_DEVICE_FAMILY_22000;
-	    sc->sc_integrated = 1;
-	    sc->sc_ltr_delay = IWX_SOC_FLAGS_LTR_APPLY_DELAY_200;
-	    sc->sc_low_latency_xtal = 0;
-	    sc->sc_xtal_latency = 5000;
-	    sc->sc_tx_with_siso_diversity = 0;
-	    sc->sc_uhb_supported = 0;
-	    break;
+		sc->sc_fwname = "iwx-Qu-c0-hr-b0-63";
+		sc->sc_device_family = IWX_DEVICE_FAMILY_22000;
+		sc->sc_integrated = 1;
+		sc->sc_ltr_delay = IWX_SOC_FLAGS_LTR_APPLY_DELAY_200;
+		sc->sc_low_latency_xtal = 0;
+		sc->sc_xtal_latency = 5000;
+		sc->sc_tx_with_siso_diversity = 0;
+		sc->sc_uhb_supported = 0;
+		break;
 	default:
 		printf("%s: unknown adapter type\n", DEVNAME(sc));
 		return;

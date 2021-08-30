@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmd.c,v 1.139 2021/08/15 13:45:42 krw Exp $	*/
+/*	$OpenBSD: cmd.c,v 1.142 2021/08/29 17:29:14 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -55,9 +55,9 @@ Xreinit(char *args, struct mbr *mbr)
 
 	dogpt = 0;
 
-	if (strncasecmp(args, "gpt", 3) == 0)
+	if (strcasecmp(args, "gpt") == 0)
 		dogpt = 1;
-	else if (strncasecmp(args, "mbr", 3) == 0)
+	else if (strcasecmp(args, "mbr") == 0)
 		dogpt = 0;
 	else if (strlen(args) > 0) {
 		printf("Unrecognized modifier '%s'\n", args);
@@ -115,7 +115,7 @@ Xswap(char *args, struct mbr *mbr)
 	struct gpt_partition	 gg;
 
 	to = args;
-	from = strsep(&to, " \t");
+	from = strsep(&to, WHITESPACE);
 
 	pt = parsepn(to);
 	if (pt == -1)
@@ -505,7 +505,7 @@ Xflag(char *args, struct mbr *mbr)
 	int			 i, pn;
 
 	flag = args;
-	part = strsep(&flag, " \t");
+	part = strsep(&flag, WHITESPACE);
 
 	pn = parsepn(part);
 	if (pn == -1)
@@ -586,7 +586,7 @@ ask_num(const char *str, int dflt, int low, int high)
 
 	do {
 		printf("%s [%d - %d]: [%d] ", str, low, high, dflt);
-		string_from_line(lbuf, sizeof(lbuf));
+		string_from_line(lbuf, sizeof(lbuf), TRIMMED);
 
 		if (lbuf[0] == '\0') {
 			num = dflt;
@@ -604,15 +604,17 @@ ask_num(const char *str, int dflt, int low, int high)
 int
 ask_pid(const int dflt, struct uuid *guid)
 {
-	char			lbuf[100], *cp;
-	int			num = -1, status;
+	char			lbuf[100];
+	int			num, status;
 
-	do {
-		printf("Partition id ('0' to disable) [01 - FF]: [%X] ", dflt);
+	for (;;) {
+		printf("Partition id ('0' to disable) [01 - FF]: [%02X] ", dflt);
 		printf("(? for help) ");
-		string_from_line(lbuf, sizeof(lbuf));
+		string_from_line(lbuf, sizeof(lbuf), TRIMMED);
 
-		if (lbuf[0] == '?') {
+		if (strlen(lbuf) == 0)
+			return dflt;
+		if (strcmp(lbuf, "?") == 0) {
 			PRT_printall();
 			continue;
 		}
@@ -623,24 +625,12 @@ ask_pid(const int dflt, struct uuid *guid)
 				return 0x100;
 		}
 
-		/* Convert */
-		cp = lbuf;
-		num = strtol(lbuf, &cp, 16);
+		num = hex_octet(lbuf);
+		if (num != -1)
+			return num;
 
-		/* Make sure only number present */
-		if (cp == lbuf)
-			num = dflt;
-		if (*cp != '\0') {
-			printf("'%s' is not a valid number.\n", lbuf);
-			num = -1;
-		} else if (num == 0) {
-			break;
-		} else if (num < 0 || num > 0xff) {
-			printf("'%x' is out of range.\n", num);
-		}
-	} while (num < 0 || num > 0xff);
-
-	return num;
+		printf("'%s' is not a valid partition id.\n", lbuf);
+	}
 }
 
 char *
@@ -650,7 +640,7 @@ ask_string(const char *prompt, const char *oval)
 
 	buf[0] = '\0';
 	printf("%s: [%s] ", prompt, oval ? oval : "");
-	string_from_line(buf, sizeof(buf));
+	string_from_line(buf, sizeof(buf), UNTRIMMED);
 
 	if (buf[0] == '\0' && oval)
 		strlcpy(buf, oval, sizeof(buf));

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.358 2021/08/19 06:02:04 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.363 2021/08/29 20:31:18 gnezdo Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -266,10 +266,10 @@ int	iwm_poll_bit(struct iwm_softc *, int, uint32_t, uint32_t, int);
 int	iwm_nic_lock(struct iwm_softc *);
 void	iwm_nic_assert_locked(struct iwm_softc *);
 void	iwm_nic_unlock(struct iwm_softc *);
-void	iwm_set_bits_mask_prph(struct iwm_softc *, uint32_t, uint32_t,
+int	iwm_set_bits_mask_prph(struct iwm_softc *, uint32_t, uint32_t,
 	    uint32_t);
-void	iwm_set_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
-void	iwm_clear_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
+int	iwm_set_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
+int	iwm_clear_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
 int	iwm_dma_contig_alloc(bus_dma_tag_t, struct iwm_dma_info *, bus_size_t,
 	    bus_size_t);
 void	iwm_dma_contig_free(struct iwm_dma_info *);
@@ -1167,31 +1167,32 @@ iwm_nic_unlock(struct iwm_softc *sc)
 		printf("%s: NIC already unlocked\n", DEVNAME(sc));
 }
 
-void
+int
 iwm_set_bits_mask_prph(struct iwm_softc *sc, uint32_t reg, uint32_t bits,
     uint32_t mask)
 {
 	uint32_t val;
 
-	/* XXX: no error path? */
 	if (iwm_nic_lock(sc)) {
 		val = iwm_read_prph(sc, reg) & mask;
 		val |= bits;
 		iwm_write_prph(sc, reg, val);
 		iwm_nic_unlock(sc);
+		return 0;
 	}
+	return EBUSY;
 }
 
-void
+int
 iwm_set_bits_prph(struct iwm_softc *sc, uint32_t reg, uint32_t bits)
 {
-	iwm_set_bits_mask_prph(sc, reg, bits, ~0);
+	return iwm_set_bits_mask_prph(sc, reg, bits, ~0);
 }
 
-void
+int
 iwm_clear_bits_prph(struct iwm_softc *sc, uint32_t reg, uint32_t bits)
 {
-	iwm_set_bits_mask_prph(sc, reg, 0, ~bits);
+	return iwm_set_bits_mask_prph(sc, reg, 0, ~bits);
 }
 
 int
@@ -1686,6 +1687,7 @@ int
 iwm_prepare_card_hw(struct iwm_softc *sc)
 {
 	int t = 0;
+	int ntries;
 
 	if (iwm_set_hw_ready(sc))
 		return 0;
@@ -1694,17 +1696,19 @@ iwm_prepare_card_hw(struct iwm_softc *sc)
 	    IWM_CSR_RESET_LINK_PWR_MGMT_DISABLED);
 	DELAY(1000);
  
+	for (ntries = 0; ntries < 10; ntries++) {
+		/* If HW is not ready, prepare the conditions to check again */
+		IWM_SETBITS(sc, IWM_CSR_HW_IF_CONFIG_REG,
+		    IWM_CSR_HW_IF_CONFIG_REG_PREPARE);
 
-	/* If HW is not ready, prepare the conditions to check again */
-	IWM_SETBITS(sc, IWM_CSR_HW_IF_CONFIG_REG,
-	    IWM_CSR_HW_IF_CONFIG_REG_PREPARE);
-
-	do {
-		if (iwm_set_hw_ready(sc))
-			return 0;
-		DELAY(200);
-		t += 200;
-	} while (t < 150000);
+		do {
+			if (iwm_set_hw_ready(sc))
+				return 0;
+			DELAY(200);
+			t += 200;
+		} while (t < 150000);
+		DELAY(25000);
+	}
 
 	return ETIMEDOUT;
 }
@@ -1822,7 +1826,10 @@ iwm_apm_init(struct iwm_softc *sc)
 			iwm_read_prph(sc, IWM_OSC_CLK);
 			iwm_nic_unlock(sc);
 		}
-		iwm_set_bits_prph(sc, IWM_OSC_CLK, IWM_OSC_CLK_FORCE_CONTROL);
+		err = iwm_set_bits_prph(sc, IWM_OSC_CLK,
+		    IWM_OSC_CLK_FORCE_CONTROL);
+		if (err)
+			goto out;
 		if (iwm_nic_lock(sc)) {
 			iwm_read_prph(sc, IWM_OSC_CLK);
 			iwm_read_prph(sc, IWM_OSC_CLK);
@@ -1846,8 +1853,10 @@ iwm_apm_init(struct iwm_softc *sc)
 		DELAY(20);
 
 		/* Disable L1-Active */
-		iwm_set_bits_prph(sc, IWM_APMG_PCIDEV_STT_REG,
+		err = iwm_set_bits_prph(sc, IWM_APMG_PCIDEV_STT_REG,
 		    IWM_APMG_PCIDEV_STT_VAL_L1_ACT_DIS);
+		if (err)
+			goto out;
 
 		/* Clear the interrupt in APMG if the NIC is in RFKILL */
 		if (iwm_nic_lock(sc)) {
@@ -2289,7 +2298,7 @@ iwm_nic_rx_legacy_init(struct iwm_softc *sc)
 int
 iwm_nic_tx_init(struct iwm_softc *sc)
 {
-	int qid;
+	int qid, err;
 
 	if (!iwm_nic_lock(sc))
 		return EBUSY;
@@ -2308,13 +2317,13 @@ iwm_nic_tx_init(struct iwm_softc *sc)
 		    txq->desc_dma.paddr >> 8);
 	}
 
-	iwm_set_bits_prph(sc, IWM_SCD_GP_CTRL,
+	err = iwm_set_bits_prph(sc, IWM_SCD_GP_CTRL,
 	    IWM_SCD_GP_CTRL_AUTO_ACTIVE_MODE |
 	    IWM_SCD_GP_CTRL_ENABLE_31_QUEUES);
 
 	iwm_nic_unlock(sc);
 
-	return 0;
+	return err;
 }
 
 int
@@ -2366,6 +2375,7 @@ const uint8_t iwm_ac_to_tx_fifo[] = {
 int
 iwm_enable_ac_txq(struct iwm_softc *sc, int qid, int fifo)
 {
+	int err;
 	iwm_nic_assert_locked(sc);
 
 	IWM_WRITE(sc, IWM_HBUS_TARG_WRPTR, qid << 8 | 0);
@@ -2374,7 +2384,10 @@ iwm_enable_ac_txq(struct iwm_softc *sc, int qid, int fifo)
 	    (0 << IWM_SCD_QUEUE_STTS_REG_POS_ACTIVE)
 	    | (1 << IWM_SCD_QUEUE_STTS_REG_POS_SCD_ACT_EN));
 
-	iwm_clear_bits_prph(sc, IWM_SCD_AGGR_SEL, (1 << qid));
+	err = iwm_clear_bits_prph(sc, IWM_SCD_AGGR_SEL, (1 << qid));
+	if (err) {
+		return err;
+	}
 
 	iwm_write_prph(sc, IWM_SCD_QUEUE_RDPTR(qid), 0);
 
@@ -2508,9 +2521,10 @@ iwm_post_alive(struct iwm_softc *sc)
 	iwm_nic_unlock(sc);
 
 	/* Enable L1-Active */
-	if (sc->sc_device_family < IWM_DEVICE_FAMILY_8000)
-		iwm_clear_bits_prph(sc, IWM_APMG_PCIDEV_STT_REG,
+	if (sc->sc_device_family < IWM_DEVICE_FAMILY_8000) {
+		err = iwm_clear_bits_prph(sc, IWM_APMG_PCIDEV_STT_REG,
 		    IWM_APMG_PCIDEV_STT_VAL_L1_ACT_DIS);
+	}
 
 	return err;
 }
@@ -3933,9 +3947,12 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 	    dma->map, 0, byte_cnt, BUS_DMASYNC_PREWRITE);
 
 	if (dst_addr >= IWM_FW_MEM_EXTENDED_START &&
-	    dst_addr <= IWM_FW_MEM_EXTENDED_END)
-		iwm_set_bits_prph(sc, IWM_LMPM_CHICK,
+	    dst_addr <= IWM_FW_MEM_EXTENDED_END) {
+		err = iwm_set_bits_prph(sc, IWM_LMPM_CHICK,
 		    IWM_LMPM_CHICK_EXTENDED_ADDR_SPACE);
+		if (err)
+			return err;
+	}
 
 	sc->sc_fw_chunk_done = 0;
 
@@ -3976,8 +3993,10 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 
 	if (dst_addr >= IWM_FW_MEM_EXTENDED_START &&
 	    dst_addr <= IWM_FW_MEM_EXTENDED_END) {
-		iwm_clear_bits_prph(sc, IWM_LMPM_CHICK,
+		int err2 = iwm_clear_bits_prph(sc, IWM_LMPM_CHICK,
 		    IWM_LMPM_CHICK_EXTENDED_ADDR_SPACE);
+		if (!err)
+			err = err2;
 	}
 
 	return err;
@@ -11023,15 +11042,6 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, 0x40);
 	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
 
-	/* Enable bus-mastering and hardware bug workaround. */
-	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, PCI_COMMAND_STATUS_REG);
-	reg |= PCI_COMMAND_MASTER_ENABLE;
-	/* if !MSI */
-	if (reg & PCI_COMMAND_INTERRUPT_DISABLE) {
-		reg &= ~PCI_COMMAND_INTERRUPT_DISABLE;
-	}
-	pci_conf_write(sc->sc_pct, sc->sc_pcitag, PCI_COMMAND_STATUS_REG, reg);
-
 	memtype = pci_mapreg_type(pa->pa_pc, pa->pa_tag, PCI_MAPREG_START);
 	err = pci_mapreg_map(pa, PCI_MAPREG_START, memtype, 0,
 	    &sc->sc_st, &sc->sc_sh, NULL, &sc->sc_sz, 0);
@@ -11042,9 +11052,18 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 
 	if (pci_intr_map_msix(pa, 0, &ih) == 0) {
 		sc->sc_msix = 1;
-	} else if (pci_intr_map_msi(pa, &ih) && pci_intr_map(pa, &ih)) {
-		printf("%s: can't map interrupt\n", DEVNAME(sc));
-		return;
+	} else if (pci_intr_map_msi(pa, &ih)) {
+		if (pci_intr_map(pa, &ih)) {
+			printf("%s: can't map interrupt\n", DEVNAME(sc));
+			return;
+		}
+		/* Hardware bug workaround. */
+		reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag,
+		    PCI_COMMAND_STATUS_REG);
+		if (reg & PCI_COMMAND_INTERRUPT_DISABLE)
+			reg &= ~PCI_COMMAND_INTERRUPT_DISABLE;
+		pci_conf_write(sc->sc_pct, sc->sc_pcitag,
+		    PCI_COMMAND_STATUS_REG, reg);
 	}
 
 	intrstr = pci_intr_string(sc->sc_pct, ih);

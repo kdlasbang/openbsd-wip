@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.380 2021/08/13 18:54:54 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.386 2021/08/27 17:25:55 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -280,7 +280,7 @@ server_client_open(struct client *c, char **cause)
 static void
 server_client_attached_lost(struct client *c)
 {
-	struct session	*s = c->session;
+	struct session	*s;
 	struct window	*w;
 	struct client	*loop;
 	struct client	*found;
@@ -308,7 +308,6 @@ server_client_attached_lost(struct client *c)
 			server_client_update_latest(found);
 	}
 }
-
 
 /* Set client session. */
 void
@@ -1554,7 +1553,6 @@ server_client_check_pane_resize(struct window_pane *wp)
 	evtimer_add(&wp->resize_timer, &tv);
 }
 
-
 /* Check pane buffer size. */
 static void
 server_client_check_pane_buffer(struct window_pane *wp)
@@ -2126,6 +2124,7 @@ server_client_dispatch_command(struct client *c, struct imsg *imsg)
 	int			  argc;
 	char			**argv, *cause;
 	struct cmd_parse_result	 *pr;
+	struct args_value	 *values;
 
 	if (c->flags & CLIENT_EXIT)
 		return;
@@ -2151,17 +2150,17 @@ server_client_dispatch_command(struct client *c, struct imsg *imsg)
 		*argv = xstrdup("new-session");
 	}
 
-	pr = cmd_parse_from_arguments(argc, argv, NULL);
+	values = args_from_vector(argc, argv);
+	pr = cmd_parse_from_arguments(values, argc, NULL);
 	switch (pr->status) {
-	case CMD_PARSE_EMPTY:
-		cause = xstrdup("empty command");
-		goto error;
 	case CMD_PARSE_ERROR:
 		cause = pr->error;
 		goto error;
 	case CMD_PARSE_SUCCESS:
 		break;
 	}
+	args_free_values(values, argc);
+	free(values);
 	cmd_free_argv(argc, argv);
 
 	cmdq_append(c, cmdq_get_command(pr->cmdlist, NULL));
@@ -2378,7 +2377,7 @@ server_client_set_flags(struct client *c, const char *flags)
 	uint64_t flag;
 	int	 not;
 
-	s = copy = xstrdup (flags);
+	s = copy = xstrdup(flags);
 	while ((next = strsep(&s, ",")) != NULL) {
 		not = (*next == '!');
 		if (not)
@@ -2448,12 +2447,27 @@ server_client_get_flags(struct client *c)
 }
 
 /* Get client window. */
-static struct client_window *
+struct client_window *
 server_client_get_client_window(struct client *c, u_int id)
 {
 	struct client_window	cw = { .window = id };
 
 	return (RB_FIND(client_windows, &c->windows, &cw));
+}
+
+/* Add client window. */
+struct client_window *
+server_client_add_client_window(struct client *c, u_int id)
+{
+	struct client_window	*cw;
+
+	cw = server_client_get_client_window(c, id);
+	if (cw == NULL) {
+		cw = xcalloc(1, sizeof *cw);
+		cw->window = id;
+		RB_INSERT(client_windows, &c->windows, cw);
+	}
+	return cw;
 }
 
 /* Get client active pane. */
@@ -2484,12 +2498,7 @@ server_client_set_pane(struct client *c, struct window_pane *wp)
 	if (s == NULL)
 		return;
 
-	cw = server_client_get_client_window(c, s->curw->window->id);
-	if (cw == NULL) {
-		cw = xcalloc(1, sizeof *cw);
-		cw->window = s->curw->window->id;
-		RB_INSERT(client_windows, &c->windows, cw);
-	}
+	cw = server_client_add_client_window(c, s->curw->window->id);
 	cw->pane = wp;
 	log_debug("%s pane now %%%u", c->name, wp->id);
 }
