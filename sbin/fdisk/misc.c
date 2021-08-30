@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.80 2021/08/15 13:45:42 krw Exp $	*/
+/*	$OpenBSD: misc.c,v 1.82 2021/08/28 11:55:17 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -60,19 +60,31 @@ unit_lookup(const char *units)
 }
 
 void
-string_from_line(char *buf, const size_t buflen)
+string_from_line(char *buf, const size_t buflen, const int trim)
 {
 	static char		*line;
 	static size_t		 sz;
 	ssize_t			 len;
+	unsigned int		 i;
 
 	len = getline(&line, &sz, stdin);
 	if (len == -1)
 		errx(1, "eof");
 
-	line[strcspn(line, "\n")] = '\0';
-
-	strlcpy(buf, line, buflen);
+	switch (trim) {
+	case UNTRIMMED:
+		line[strcspn(line, "\n")] = '\0';
+		strlcpy(buf, line, buflen);
+		break;
+	case TRIMMED:
+		for (i = strlen(line); i > 0; i--) {
+			if (isspace((unsigned char)line[i - 1]) == 0)
+				break;
+			line[i - 1] = '\0';
+		}
+		strlcpy(buf, line + strspn(line, WHITESPACE), buflen);
+		break;
+	}
 }
 
 int
@@ -122,7 +134,7 @@ getuint64(const char *prompt, uint64_t oval, const uint64_t minval,
 	do {
 		printf("%s [%llu - %llu]: [%llu] ", prompt, minval, maxval,
 		    oval);
-		string_from_line(buf, sizeof(buf));
+		string_from_line(buf, sizeof(buf), TRIMMED);
 
 		if (buf[0] == '\0') {
 			rslt = snprintf(buf, sizeof(buf), "%llu", oval);
@@ -252,4 +264,22 @@ string_to_utf16le(const char *ch)
 		utf[i - 1] = 0;
 
 	return utf;
+}
+
+int
+hex_octet(char *buf)
+{
+	char			*cp;
+	long			 num;
+
+	cp = buf;
+	num = strtol(buf, &cp, 16);
+
+	if (cp == buf || *cp != '\0')
+		return -1;
+
+	if (num < 0 || num > 0xff)
+		return -1;
+
+	return num;
 }
