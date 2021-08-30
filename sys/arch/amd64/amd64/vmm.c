@@ -66,49 +66,6 @@ void *l1tf_flush_region;
 #define VMX_EXIT_INFO_COMPLETE				\
     (VMX_EXIT_INFO_HAVE_RIP | VMX_EXIT_INFO_HAVE_REASON)
 
-struct vm {
-	struct vmspace		 *vm_vmspace;
-	vm_map_t		 vm_map;
-	uint32_t		 vm_id;
-	pid_t			 vm_creator_pid;
-	size_t			 vm_nmemranges;
-	size_t			 vm_memory_size;
-	char			 vm_name[VMM_MAX_NAME_LEN];
-	struct vm_mem_range	 vm_memranges[VMM_MAX_MEM_RANGES];
-
-	struct vcpu_head	 vm_vcpu_list;
-	uint32_t		 vm_vcpu_ct;
-	u_int			 vm_vcpus_running;
-	struct rwlock		 vm_vcpu_lock;
-
-	SLIST_ENTRY(vm)		 vm_link;
-};
-
-SLIST_HEAD(vmlist_head, vm);
-
-struct vmm_softc {
-	struct device		sc_dev;
-
-	/* Capabilities */
-	uint32_t		nr_vmx_cpus;
-	uint32_t		nr_svm_cpus;
-	uint32_t		nr_rvi_cpus;
-	uint32_t		nr_ept_cpus;
-
-	/* Managed VMs */
-	struct vmlist_head	vm_list;
-
-	int			mode;
-
-	struct rwlock		vm_lock;
-	size_t			vm_ct;		/* number of in-memory VMs */
-	size_t			vm_idx;		/* next unique VM index */
-
-	struct rwlock		vpid_lock;
-	uint16_t		max_vpid;
-	uint8_t			vpids[512];	/* bitmap of used VPID/ASIDs */
-};
-
 void vmx_dump_vmcs_field(uint16_t, const char *);
 int vmm_enabled(void);
 int vmm_probe(struct device *, void *, void *);
@@ -361,38 +318,38 @@ vmm_attach(struct device *parent, struct device *self, void *aux)
 	struct cpu_info *ci;
 	CPU_INFO_ITERATOR cii;
 
-	sc->nr_vmx_cpus = 0;
-	sc->nr_svm_cpus = 0;
-	sc->nr_rvi_cpus = 0;
-	sc->nr_ept_cpus = 0;
+	sc->sc_md.nr_vmx_cpus = 0;
+	sc->sc_md.nr_svm_cpus = 0;
+	sc->sc_md.nr_rvi_cpus = 0;
+	sc->sc_md.nr_ept_cpus = 0;
 	sc->vm_ct = 0;
 	sc->vm_idx = 0;
 
 	/* Calculate CPU features */
 	CPU_INFO_FOREACH(cii, ci) {
 		if (ci->ci_vmm_flags & CI_VMM_VMX)
-			sc->nr_vmx_cpus++;
+			sc->sc_md.nr_vmx_cpus++;
 		if (ci->ci_vmm_flags & CI_VMM_SVM)
-			sc->nr_svm_cpus++;
+			sc->sc_md.nr_svm_cpus++;
 		if (ci->ci_vmm_flags & CI_VMM_RVI)
-			sc->nr_rvi_cpus++;
+			sc->sc_md.nr_rvi_cpus++;
 		if (ci->ci_vmm_flags & CI_VMM_EPT)
-			sc->nr_ept_cpus++;
+			sc->sc_md.nr_ept_cpus++;
 	}
 
 	SLIST_INIT(&sc->vm_list);
 	rw_init(&sc->vm_lock, "vmlistlock");
 
-	if (sc->nr_ept_cpus) {
+	if (sc->sc_md.nr_ept_cpus) {
 		printf(": VMX/EPT");
 		sc->mode = VMM_MODE_EPT;
-	} else if (sc->nr_vmx_cpus) {
+	} else if (sc->sc_md.nr_vmx_cpus) {
 		printf(": VMX");
 		sc->mode = VMM_MODE_VMX;
-	} else if (sc->nr_rvi_cpus) {
+	} else if (sc->sc_md.nr_rvi_cpus) {
 		printf(": SVM/RVI");
 		sc->mode = VMM_MODE_RVI;
-	} else if (sc->nr_svm_cpus) {
+	} else if (sc->sc_md.nr_svm_cpus) {
 		printf(": SVM");
 		sc->mode = VMM_MODE_SVM;
 	} else {

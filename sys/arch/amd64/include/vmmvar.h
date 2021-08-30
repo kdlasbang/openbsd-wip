@@ -897,6 +897,14 @@ struct vcpu {
 
 SLIST_HEAD(vcpu_head, vcpu);
 
+struct vmm_softc_md {
+	/* Capabilities */
+	uint32_t		nr_vmx_cpus;
+	uint32_t		nr_svm_cpus;
+	uint32_t		nr_rvi_cpus;
+	uint32_t		nr_ept_cpus;
+};
+
 void	vmm_dispatch_intr(vaddr_t);
 int	vmxon(uint64_t *);
 int	vmxoff(void);

@@ -21,6 +21,10 @@
 #include <sys/proc.h>
 #include <sys/types.h>
 
+#include <uvm/uvm_extern.h>
+
+#include <machine/vmmvar.h>
+
 #define VMM_HV_SIGNATURE 	"OpenBSDVMM58"
 
 #define VMM_MAX_MEM_RANGES	16
@@ -86,6 +90,46 @@ struct vm_intr_params {
 	uint32_t		vip_vm_id;
 	uint32_t		vip_vcpu_id;
 	uint16_t		vip_intr;
+};
+
+struct vm {
+	struct vmspace		 *vm_vmspace;
+	vm_map_t		 vm_map;
+	uint32_t		 vm_id;
+	pid_t			 vm_creator_pid;
+	size_t			 vm_nmemranges;
+	size_t			 vm_memory_size;
+	char			 vm_name[VMM_MAX_NAME_LEN];
+	struct vm_mem_range	 vm_memranges[VMM_MAX_MEM_RANGES];
+
+	struct vcpu_head	 vm_vcpu_list;
+	uint32_t		 vm_vcpu_ct;
+	u_int			 vm_vcpus_running;
+	struct rwlock		 vm_vcpu_lock;
+
+	SLIST_ENTRY(vm)		 vm_link;
+};
+
+SLIST_HEAD(vmlist_head, vm);
+
+struct vmm_softc_md;
+struct vmm_softc {
+	struct device		sc_dev;
+
+	struct vmm_softc_md	sc_md;
+
+	/* Managed VMs */
+	struct vmlist_head	vm_list;
+
+	int			mode;
+
+	struct rwlock		vm_lock;
+	size_t			vm_ct;		/* number of in-memory VMs */
+	size_t			vm_idx;		/* next unique VM index */
+
+	struct rwlock		vpid_lock;
+	uint16_t		max_vpid;
+	uint8_t			vpids[512];	/* bitmap of used VPID/ASIDs */
 };
 
 int vmm_start(void);
