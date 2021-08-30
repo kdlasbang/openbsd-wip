@@ -30,6 +30,7 @@
 #endif /* VMM_DEBUG */
 
 int vmmioctl(dev_t, u_long, caddr_t, int, struct proc *);
+extern int vmmioctl_md(dev_t, u_long,caddr_t, int, struct proc *);
 
 /*
  * vmmioctl
@@ -60,8 +61,7 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 		ret = vm_intr_pending((struct vm_intr_params *)data);
 		break;
 	default:
-		DPRINTF("%s: unknown ioctl code 0x%lx\n", __func__, cmd);
-		ret = ENOTTY;
+		ret = vmmioctl_md(dev, cmd, data, flag, p);
 	}
 
 	return (ret);
