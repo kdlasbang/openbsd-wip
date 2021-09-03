@@ -259,7 +259,7 @@ buf_alloc_pages(struct buf *bp, vsize_t size)
 	KASSERT(bp->b_data == NULL);
 	splassert(IPL_BIO);
 
-	uvm_obj_init(&bp->b_uobj, NULL, 1);
+	uvm_obj_init(&bp->b_uobj, &bufcache_pager, 1);
 
 	/*
 	 * Attempt to allocate with NOWAIT. if we can't, then throw

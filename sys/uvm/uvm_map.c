@@ -499,6 +499,28 @@ uvm_map_reference(struct vm_map *map)
 	atomic_inc_int(&map->ref_count);
 }
 
+void
+uvm_map_lock_entry(struct vm_map_entry *entry)
+{
+	if (entry->aref.ar_amap != NULL) {
+		amap_lock(entry->aref.ar_amap);
+	}
+	if (UVM_ET_ISOBJ(entry)) {
+		rw_enter(entry->object.uvm_obj->vmobjlock, RW_WRITE);
+	}
+}
+
+void
+uvm_map_unlock_entry(struct vm_map_entry *entry)
+{
+	if (UVM_ET_ISOBJ(entry)) {
+		rw_exit(entry->object.uvm_obj->vmobjlock);
+	}
+	if (entry->aref.ar_amap != NULL) {
+		amap_unlock(entry->aref.ar_amap);
+	}
+}
+
 /*
  * Calculate the dused delta.
  */
@@ -1570,9 +1592,15 @@ uvm_unmap_detach(struct uvm_map_deadq *deadq, int flags)
 	int waitok = flags & UVM_PLA_WAITOK;
 
 	TAILQ_FOREACH_SAFE(entry, deadq, dfree.deadq, tmp) {
+		/* Drop reference to amap, if we've got one. */
+		if (entry->aref.ar_amap)
+			amap_unref(entry->aref.ar_amap,
+			    entry->aref.ar_pageoff,
+			    atop(entry->end - entry->start),
+			    flags & AMAP_REFALL);
+
 		/* Skip entries for which we have to grab the kernel lock. */
-		if (entry->aref.ar_amap || UVM_ET_ISSUBMAP(entry) ||
-		    UVM_ET_ISOBJ(entry))
+		if (UVM_ET_ISSUBMAP(entry) || UVM_ET_ISOBJ(entry))
 			continue;
 
 		TAILQ_REMOVE(deadq, entry, dfree.deadq);
@@ -1586,13 +1614,6 @@ uvm_unmap_detach(struct uvm_map_deadq *deadq, int flags)
 	while ((entry = TAILQ_FIRST(deadq)) != NULL) {
 		if (waitok)
 			uvm_pause();
-		/* Drop reference to amap, if we've got one. */
-		if (entry->aref.ar_amap)
-			amap_unref(entry->aref.ar_amap,
-			    entry->aref.ar_pageoff,
-			    atop(entry->end - entry->start),
-			    flags & AMAP_REFALL);
-
 		/* Drop reference to our backing object, if we've got one. */
 		if (UVM_ET_ISSUBMAP(entry)) {
 			/* ... unlikely to happen, but play it safe */
@@ -2156,17 +2177,8 @@ uvm_unmap_kill_entry(struct vm_map *map, struct vm_map_entry *entry)
 		 * from the object.  offsets are always relative
 		 * to vm_map_min(kernel_map).
 		 */
-		pmap_remove(pmap_kernel(), entry->start, entry->end);
-		uvm_km_pgremove(entry->object.uvm_obj,
-		    entry->start - vm_map_min(kernel_map),
-		    entry->end - vm_map_min(kernel_map));
-
-		/*
-		 * null out kernel_object reference, we've just
-		 * dropped it
-		 */
-		entry->etype &= ~UVM_ET_OBJ;
-		entry->object.uvm_obj = NULL;  /* to be safe */
+		uvm_km_pgremove(entry->object.uvm_obj, entry->start,
+		    entry->end);
 	} else {
 		/* remove mappings the standard way. */
 		pmap_remove(map->pmap, entry->start, entry->end);
@@ -2229,8 +2241,22 @@ uvm_unmap_remove(struct vm_map *map, vaddr_t start, vaddr_t end,
 		if (UVM_ET_ISSTACK(entry) && (map->flags & VM_MAP_ISVMSPACE))
 			map->sserial++;
 
+		/*
+		 * XXXMPI
+		 *
+		 * rw_enter()
+		 * uvm_map_lock_entry()
+		 * uvm_fault_unwire_locked()
+		 * uvm_unmap_kill_entry()
+		 * uvm_unmap_remove()
+		 * sys_munmap()
+		 */
+		uvm_map_lock_entry(entry);
+
 		/* Kill entry. */
 		uvm_unmap_kill_entry(map, entry);
+
+		uvm_map_unlock_entry(entry);
 
 		/* Update space usage. */
 		if ((map->flags & VM_MAP_ISVMSPACE) &&
@@ -3423,8 +3449,10 @@ uvm_map_protect(struct vm_map *map, vaddr_t start, vaddr_t end,
 				 */
 				iter->wired_count = 0;
 			}
+			uvm_map_lock_entry(iter);
 			pmap_protect(map->pmap, iter->start, iter->end,
 			    iter->protection & mask);
+			uvm_map_unlock_entry(iter);
 		}
 
 		/*
@@ -3970,11 +3998,13 @@ uvm_mapent_forkcopy(struct vmspace *new_vm, struct vm_map *new_map,
 			 */
 			if (!UVM_ET_ISNEEDSCOPY(old_entry)) {
 				if (old_entry->max_protection & PROT_WRITE) {
+					uvm_map_lock_entry(old_entry);
 					pmap_protect(old_map->pmap,
 					    old_entry->start,
 					    old_entry->end,
 					    old_entry->protection &
 					    ~PROT_WRITE);
+					uvm_map_unlock_entry(old_entry);
 					pmap_update(old_map->pmap);
 				}
 				old_entry->etype |= UVM_ET_NEEDSCOPY;
@@ -4754,9 +4784,11 @@ flush_object:
 		    ((flags & PGO_FREE) == 0 ||
 		     ((entry->max_protection & PROT_WRITE) != 0 &&
 		      (entry->etype & UVM_ET_COPYONWRITE) == 0))) {
+			rw_enter(uobj->vmobjlock, RW_WRITE);
 			rv = uobj->pgops->pgo_flush(uobj,
 			    cp_start - entry->start + entry->offset,
 			    cp_end - entry->start + entry->offset, flags);
+			rw_exit(uobj->vmobjlock);
 
 			if (rv == FALSE)
 				error = EFAULT;

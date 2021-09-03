@@ -1166,6 +1166,9 @@ drm_gem_object_release(struct drm_gem_object *obj)
 #else
 	if (obj->uao)
 		uao_detach(obj->uao);
+#if notyet
+	uvm_obj_destroy(&obj->uobj);
+#endif
 #endif
 
 	dma_resv_fini(&obj->_resv);

@@ -469,6 +469,7 @@ extern caddr_t pmap_csrcp, pmap_cdstp, pmap_zerop, pmap_ptpp, pmap_flshp;
 extern int pmap_pg_g;
 extern int pmap_pg_wc;
 extern struct pmap_head pmaps;
+extern struct mutex pmaps_lock;
 
 extern uint32_t	cpu_meltdown;
 
@@ -1029,7 +1030,9 @@ pmap_pinit_pd_pae(struct pmap *pmap)
 		pmap->pm_pdirpa_intel = 0;
 	}
 
+	mtx_enter(&pmaps_lock);
 	LIST_INSERT_HEAD(&pmaps, pmap, pm_list);
+	mtx_leave(&pmaps_lock);
 }
 
 /*
@@ -2044,6 +2047,9 @@ pmap_growkernel_pae(vaddr_t maxkvaddr)
 	int s;
 	paddr_t ptaddr;
 
+	if (!cold)
+		KERNEL_ASSERT_LOCKED();
+
 	needed_kpde = (int)(maxkvaddr - VM_MIN_KERNEL_ADDRESS + (NBPD-1))
 		/ NBPD;
 	if (needed_kpde <= nkpde)
@@ -2087,10 +2093,12 @@ pmap_growkernel_pae(vaddr_t maxkvaddr)
 			uvm_wait("pmap_growkernel");
 
 		/* distribute new kernel PTP to all active pmaps */
+		mtx_enter(&pmaps_lock);
 		LIST_FOREACH(pm, &pmaps, pm_list) {
 			PDE(pm, PDSLOT_KERN + nkpde) =
 				PDE(kpm, PDSLOT_KERN + nkpde);
 		}
+		mtx_leave(&pmaps_lock);
 	}
 
 	splx(s);

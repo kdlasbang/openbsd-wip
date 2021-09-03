@@ -72,7 +72,7 @@ struct uvm_pseg {
 	/* Bitmap of the segments in use in this pseg. */
 	int	use;
 };
-struct	mutex uvm_pseg_lck;
+struct	rwlock uvm_pseg_lck = RWLOCK_INITIALIZER("uvmpseglck");
 struct	uvm_pseg psegs[PSEG_NUMSEGS];
 
 #define UVM_PSEG_FULL(pseg)	((pseg)->use == (1 << MAX_PAGER_SEGS) - 1)
@@ -93,7 +93,6 @@ uvm_pager_init(void)
 
 	/* init pager map */
 	uvm_pseg_init(&psegs[0]);
-	mtx_init(&uvm_pseg_lck, IPL_VM);
 
 	/* init ASYNC I/O queue */
 	TAILQ_INIT(&uvm.aio_done);
@@ -134,7 +133,7 @@ uvm_pseg_get(int flags)
 	int i;
 	struct uvm_pseg *pseg;
 
-	mtx_enter(&uvm_pseg_lck);
+	rw_enter(&uvm_pseg_lck, RW_WRITE);
 
 pager_seg_restart:
 	/* Find first pseg that has room. */
@@ -158,7 +157,7 @@ pager_seg_restart:
 		for (; i < MAX_PAGER_SEGS; i++) {
 			if (!UVM_PSEG_INUSE(pseg, i)) {
 				pseg->use |= 1 << i;
-				mtx_leave(&uvm_pseg_lck);
+				rw_exit(&uvm_pseg_lck);
 				return pseg->start + i * MAXBSIZE;
 			}
 		}
@@ -166,11 +165,11 @@ pager_seg_restart:
 
 pager_seg_fail:
 	if ((flags & UVMPAGER_MAPIN_WAITOK) != 0) {
-		msleep_nsec(&psegs, &uvm_pseg_lck, PVM, "pagerseg", INFSLP);
+		rwsleep_nsec(&psegs, &uvm_pseg_lck, PVM, "pagerseg", INFSLP);
 		goto pager_seg_restart;
 	}
 
-	mtx_leave(&uvm_pseg_lck);
+	rw_exit(&uvm_pseg_lck);
 	return 0;
 }
 
@@ -201,7 +200,7 @@ uvm_pseg_release(vaddr_t segaddr)
 	/* test for no remainder */
 	KDASSERT(segaddr == pseg->start + id * MAXBSIZE);
 
-	mtx_enter(&uvm_pseg_lck);
+	rw_enter(&uvm_pseg_lck, RW_WRITE);
 
 	KASSERT(UVM_PSEG_INUSE(pseg, id));
 
@@ -213,7 +212,7 @@ uvm_pseg_release(vaddr_t segaddr)
 		pseg->start = 0;
 	}
 
-	mtx_leave(&uvm_pseg_lck);
+	rw_exit(&uvm_pseg_lck);
 
 	if (va)
 		uvm_km_free(kernel_map, va, MAX_PAGER_SEGS * MAXBSIZE);
@@ -543,11 +542,15 @@ ReTry:
 			/* XXX daddr_t -> int */
 			int nswblk = (result == VM_PAGER_AGAIN) ? swblk : 0;
 			if (pg->pg_flags & PQ_ANON) {
+				rw_enter(pg->uanon->an_lock, RW_WRITE);
 				pg->uanon->an_swslot = nswblk;
+				rw_exit(pg->uanon->an_lock);
 			} else {
+				rw_enter(pg->uobject->vmobjlock, RW_WRITE);
 				uao_set_swslot(pg->uobject,
 					       pg->offset >> PAGE_SHIFT,
 					       nswblk);
+				rw_exit(pg->uobject->vmobjlock);
 			}
 		}
 		if (result == VM_PAGER_AGAIN) {
@@ -612,6 +615,8 @@ uvm_pager_dropcluster(struct uvm_object *uobj, struct vm_page *pg,
 {
 	int lcv;
 
+	KASSERT(uobj == NULL || rw_write_held(uobj->vmobjlock));
+
 	/* drop all pages but "pg" */
 	for (lcv = 0 ; lcv < *npages ; lcv++) {
 		/* skip "pg" or empty slot */
@@ -625,10 +630,13 @@ uvm_pager_dropcluster(struct uvm_object *uobj, struct vm_page *pg,
 		 */
 		if (!uobj) {
 			if (ppsp[lcv]->pg_flags & PQ_ANON) {
+				rw_enter(ppsp[lcv]->uanon->an_lock, RW_WRITE);
 				if (flags & PGO_REALLOCSWAP)
 					  /* zap swap block */
 					  ppsp[lcv]->uanon->an_swslot = 0;
 			} else {
+				rw_enter(ppsp[lcv]->uobject->vmobjlock,
+				    RW_WRITE);
 				if (flags & PGO_REALLOCSWAP)
 					uao_set_swslot(ppsp[lcv]->uobject,
 					    ppsp[lcv]->offset >> PAGE_SHIFT, 0);
@@ -649,7 +657,6 @@ uvm_pager_dropcluster(struct uvm_object *uobj, struct vm_page *pg,
 				UVM_PAGE_OWN(ppsp[lcv], NULL);
 
 				/* kills anon and frees pg */
-				rw_enter(ppsp[lcv]->uanon->an_lock, RW_WRITE);
 				uvm_anon_release(ppsp[lcv]->uanon);
 
 				continue;
@@ -671,6 +678,14 @@ uvm_pager_dropcluster(struct uvm_object *uobj, struct vm_page *pg,
 			pmap_clear_reference(ppsp[lcv]);
 			pmap_clear_modify(ppsp[lcv]);
 			atomic_setbits_int(&ppsp[lcv]->pg_flags, PG_CLEAN);
+		}
+
+		/* if anonymous cluster, unlock object and move on */
+		if (!uobj) {
+			if (ppsp[lcv]->pg_flags & PQ_ANON)
+				rw_exit(ppsp[lcv]->uanon->an_lock);
+			else
+				rw_exit(ppsp[lcv]->uobject->vmobjlock);
 		}
 	}
 }
@@ -736,6 +751,7 @@ uvm_aio_aiodone(struct buf *bp)
 			swap = (pg->pg_flags & PQ_SWAPBACKED) != 0;
 			if (!swap) {
 				uobj = pg->uobject;
+				rw_enter(uobj->vmobjlock, RW_WRITE);
 			}
 		}
 		KASSERT(swap || pg->uobject == uobj);
@@ -763,6 +779,9 @@ uvm_aio_aiodone(struct buf *bp)
 		}
 	}
 	uvm_page_unbusy(pgs, npages);
+	if (!swap) {
+		rw_exit(uobj->vmobjlock);
+	}
 
 #ifdef UVM_SWAP_ENCRYPT
 freed:

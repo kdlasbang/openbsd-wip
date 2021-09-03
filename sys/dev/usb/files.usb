@@ -295,6 +295,10 @@ device	ure: ether, ifnet, mii, ifmedia
 attach	ure at uhub
 file	dev/usb/if_ure.c		ure
 
+# Aquantia AQC111
+device uaq: ether, ifnet, ifmedia
+attach uaq at uhub
+file   dev/usb/if_uaq.c                uaq
 
 # Serial drivers
 # Modems

@@ -560,7 +560,8 @@ bread_cluster_callback(struct buf *bp)
 		struct uvm_object *oldobj = &bp->b_uobj;
 		int page;
 
-		uvm_obj_init(newobj, NULL, 1);
+		uvm_obj_init(newobj, &bufcache_pager, 1);
+
 		for (page = 0; page < atop(xbpp[i]->b_bufsize); page++) {
 			struct vm_page *pg = uvm_pagelookup(oldobj,
 			    xbpp[i]->b_poffs + ptoa(page));

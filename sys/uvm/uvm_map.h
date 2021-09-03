@@ -442,6 +442,9 @@ void		vm_map_unbusy_ln(struct vm_map*, char*, int);
 #define vm_map_unbusy(map)	vm_map_unbusy_ln(map, NULL, 0)
 #endif
 
+void		uvm_map_lock_entry(struct vm_map_entry *);
+void		uvm_map_unlock_entry(struct vm_map_entry *);
+
 #endif /* _KERNEL */
 
 /*

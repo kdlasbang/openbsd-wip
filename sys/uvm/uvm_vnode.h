@@ -84,7 +84,6 @@ struct uvm_vnode {
 					   i/o sync to clear so it can do
 					   i/o */
 #define UVM_VNODE_WRITEABLE	0x200	/* uvn has pages that are writeable */
-#define UVM_VNODE_IOERROR	0x400	/* i/o error occurred in uvn_io() */
 
 /*
  * UVM_VNODE_BLOCKED: any condition that should new processes from

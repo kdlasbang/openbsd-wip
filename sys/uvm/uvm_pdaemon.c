@@ -440,25 +440,22 @@ uvmpd_scan_inactive(struct pglist *pglst)
 			uvmexp.pdscans++;
 			nextpg = TAILQ_NEXT(p, pageq);
 
-			/*
-			 * move referenced pages back to active queue and
-			 * skip to next page (unlikely to happen since
-			 * inactive pages shouldn't have any valid mappings
-			 * and we cleared reference before deactivating).
-			 */
-
-			if (pmap_is_referenced(p)) {
-				uvm_pageactivate(p);
-				uvmexp.pdreact++;
-				continue;
-			}
-
 			if (p->pg_flags & PQ_ANON) {
 				anon = p->uanon;
 				KASSERT(anon != NULL);
 				if (rw_enter(anon->an_lock,
 				    RW_WRITE|RW_NOSLEEP)) {
 					/* lock failed, skip this page */
+					continue;
+				}
+				/*
+				 * move referenced pages back to active queue
+				 * and skip to next page.
+				 */
+				if (pmap_is_referenced(p)) {
+					uvm_pageactivate(p);
+					rw_exit(anon->an_lock);
+					uvmexp.pdreact++;
 					continue;
 				}
 				if (p->pg_flags & PG_BUSY) {
@@ -471,7 +468,23 @@ uvmpd_scan_inactive(struct pglist *pglst)
 			} else {
 				uobj = p->uobject;
 				KASSERT(uobj != NULL);
+				if (rw_enter(uobj->vmobjlock,
+				    RW_WRITE|RW_NOSLEEP)) {
+					/* lock failed, skip this page */
+					continue;
+				}
+				/*
+				 * move referenced pages back to active queue
+				 * and skip to next page.
+				 */
+				if (pmap_is_referenced(p)) {
+					uvm_pageactivate(p);
+					rw_exit(uobj->vmobjlock);
+					uvmexp.pdreact++;
+					continue;
+				}
 				if (p->pg_flags & PG_BUSY) {
+					rw_exit(uobj->vmobjlock);
 					uvmexp.pdbusy++;
 					/* someone else owns page, skip it */
 					continue;
@@ -507,6 +520,8 @@ uvmpd_scan_inactive(struct pglist *pglst)
 					/* remove from object */
 					anon->an_page = NULL;
 					rw_exit(anon->an_lock);
+				} else {
+					rw_exit(uobj->vmobjlock);
 				}
 				continue;
 			}
@@ -518,6 +533,8 @@ uvmpd_scan_inactive(struct pglist *pglst)
 			if (free + uvmexp.paging > uvmexp.freetarg << 2) {
 				if (anon) {
 					rw_exit(anon->an_lock);
+				} else {
+					rw_exit(uobj->vmobjlock);
 				}
 				continue;
 			}
@@ -533,6 +550,8 @@ uvmpd_scan_inactive(struct pglist *pglst)
 				uvm_pageactivate(p);
 				if (anon) {
 					rw_exit(anon->an_lock);
+				} else {
+					rw_exit(uobj->vmobjlock);
 				}
 				continue;
 			}
@@ -602,6 +621,9 @@ uvmpd_scan_inactive(struct pglist *pglst)
 						UVM_PAGE_OWN(p, NULL);
 						if (anon)
 							rw_exit(anon->an_lock);
+						else
+							rw_exit(
+							    uobj->vmobjlock);
 						continue;
 					}
 					swcpages = 0;	/* cluster is empty */
@@ -635,6 +657,8 @@ uvmpd_scan_inactive(struct pglist *pglst)
 			if (p) {	/* if we just added a page to cluster */
 				if (anon)
 					rw_exit(anon->an_lock);
+				else
+					rw_exit(uobj->vmobjlock);
 
 				/* cluster not full yet? */
 				if (swcpages < swnpages)
@@ -748,6 +772,8 @@ uvmpd_scan_inactive(struct pglist *pglst)
 			if (swap_backed) {
 				if (anon)
 					rw_enter(anon->an_lock, RW_WRITE);
+				else
+					rw_enter(uobj->vmobjlock, RW_WRITE);
 			}
 
 #ifdef DIAGNOSTIC
@@ -810,6 +836,8 @@ uvmpd_scan_inactive(struct pglist *pglst)
 			 */
 			if (anon)
 				rw_exit(anon->an_lock);
+			else if (uobj)
+				rw_exit(uobj->vmobjlock);
 
 			if (nextpg && (nextpg->pg_flags & PQ_INACTIVE) == 0) {
 				nextpg = TAILQ_FIRST(pglst);	/* reload! */
@@ -920,8 +948,12 @@ uvmpd_scan(void)
 			KASSERT(p->uanon != NULL);
 			if (rw_enter(p->uanon->an_lock, RW_WRITE|RW_NOSLEEP))
 				continue;
-		} else
+		} else {
 			KASSERT(p->uobject != NULL);
+			if (rw_enter(p->uobject->vmobjlock,
+			    RW_WRITE|RW_NOSLEEP))
+				continue;
+		}
 
 		/*
 		 * if there's a shortage of swap, free any swap allocated
@@ -959,6 +991,8 @@ uvmpd_scan(void)
 		}
 		if (p->pg_flags & PQ_ANON)
 			rw_exit(p->uanon->an_lock);
+		else
+			rw_exit(p->uobject->vmobjlock);
 	}
 }
 

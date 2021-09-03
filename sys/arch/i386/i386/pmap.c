@@ -441,6 +441,7 @@ static vaddr_t virtual_end;	/* VA of last free KVA */
  */
 
 struct pmap_head pmaps;
+struct mutex pmaps_lock = MUTEX_INITIALIZER(IPL_VM);
 
 /*
  * pool that pmap structures are allocated from
@@ -963,7 +964,7 @@ pmap_bootstrap(vaddr_t kva_start)
 	kpm = pmap_kernel();
 	mtx_init(&kpm->pm_mtx, -1); /* must not be used */
 	mtx_init(&kpm->pm_apte_mtx, IPL_VM);
-	uvm_obj_init(&kpm->pm_obj, NULL, 1);
+	uvm_obj_init(&kpm->pm_obj, &pmap_pager, 1);
 	bzero(&kpm->pm_list, sizeof(kpm->pm_list));  /* pm_list not used */
 	kpm->pm_pdir = (vaddr_t)(proc0.p_addr->u_pcb.pcb_cr3 + KERNBASE);
 	kpm->pm_pdirpa = proc0.p_addr->u_pcb.pcb_cr3;
@@ -1348,7 +1349,7 @@ pmap_create(void)
 	mtx_init(&pmap->pm_apte_mtx, IPL_VM);
 
 	/* init uvm_object */
-	uvm_obj_init(&pmap->pm_obj, NULL, 1);
+	uvm_obj_init(&pmap->pm_obj, &pmap_pager, 1);
 	pmap->pm_stats.wired_count = 0;
 	pmap->pm_stats.resident_count = 1;	/* count the PDP allocd below */
 	pmap->pm_ptphint = NULL;
@@ -1420,7 +1421,9 @@ pmap_pinit_pd_86(struct pmap *pmap)
 		pmap->pm_pdirpa_intel = 0;
 	}
 
+	mtx_enter(&pmaps_lock);
 	LIST_INSERT_HEAD(&pmaps, pmap, pm_list);
+	mtx_leave(&pmaps_lock);
 }
 
 /*
@@ -1442,7 +1445,9 @@ pmap_destroy(struct pmap *pmap)
 	pmap_tlb_droppmap(pmap);	
 #endif
 
+	mtx_enter(&pmaps_lock);
 	LIST_REMOVE(pmap, pm_list);
+	mtx_leave(&pmaps_lock);
 
 	/* Free any remaining PTPs. */
 	while ((pg = RBT_ROOT(uvm_objtree, &pmap->pm_obj.memt)) != NULL) {
@@ -2616,6 +2621,9 @@ pmap_growkernel_86(vaddr_t maxkvaddr)
 	int s;
 	paddr_t ptaddr;
 
+	if (!cold)
+		KERNEL_ASSERT_LOCKED();
+
 	needed_kpde = (int)(maxkvaddr - VM_MIN_KERNEL_ADDRESS + (NBPD-1))
 		/ NBPD;
 	if (needed_kpde <= nkpde)
@@ -2659,10 +2667,12 @@ pmap_growkernel_86(vaddr_t maxkvaddr)
 			uvm_wait("pmap_growkernel");
 
 		/* distribute new kernel PTP to all active pmaps */
+		mtx_enter(&pmaps_lock);
 		LIST_FOREACH(pm, &pmaps, pm_list) {
 			PDE(pm, PDSLOT_KERN + nkpde) =
 				PDE(kpm, PDSLOT_KERN + nkpde);
 		}
+		mtx_leave(&pmaps_lock);
 	}
 
 	splx(s);

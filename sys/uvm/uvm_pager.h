@@ -111,6 +111,7 @@ struct uvm_pagerops {
 #define PGO_LOCKED	0x040	/* fault data structures are locked [get] */
 #define PGO_PDFREECLUST	0x080	/* daemon's free cluster flag [uvm_pager_put] */
 #define PGO_REALLOCSWAP	0x100	/* reallocate swap area [pager_dropcluster] */
+#define PGO_NOWAIT	0x200	/* do not wait for inode lock */
 
 /* page we are not interested in getting */
 #define PGO_DONTCARE ((struct vm_page *) -1L)	/* [get only] */

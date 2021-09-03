@@ -183,6 +183,9 @@ static void __i915_gem_free_object_rcu(struct rcu_head *head)
 #ifdef __OpenBSD__
 	if (obj->base.uao)
 		uao_detach(obj->base.uao);
+#if notyet
+	uvm_obj_destroy(&obj->base.uobj);
+#endif
 #endif
 
 	dma_resv_fini(&obj->base._resv);
