@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwx.c,v 1.98 2021/08/29 20:31:18 gnezdo Exp $	*/
+/*	$OpenBSD: if_iwx.c,v 1.103 2021/09/03 11:55:31 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -580,7 +580,7 @@ void iwx_ctxt_info_free_paging(struct iwx_softc *sc)
 
 	/* free paging*/
 	for (i = 0; i < dram->paging_cnt; i++)
-		iwx_dma_contig_free(dram->paging);
+		iwx_dma_contig_free(&dram->paging[i]);
 
 	free(dram->paging, M_DEVBUF, dram->paging_cnt * sizeof(*dram->paging));
 	dram->paging_cnt = 0;
@@ -2328,7 +2328,6 @@ int
 iwx_start_hw(struct iwx_softc *sc)
 {
 	int err;
-	int t = 0;
 
 	err = iwx_prepare_card_hw(sc);
 	if (err)
@@ -2368,16 +2367,6 @@ iwx_start_hw(struct iwx_softc *sc)
 		return err;
 
 	iwx_init_msix_hw(sc);
-
-	while (t < 150000 && !iwx_set_hw_ready(sc)) {
-		DELAY(200);
-		t += 200;
-		if (iwx_set_hw_ready(sc)) {
-			break;
-		}
-	}
-	if (t >= 150000)
-		return ETIMEDOUT;
 
 	iwx_enable_rfkill_int(sc);
 	iwx_check_rfkill(sc);
@@ -8204,6 +8193,8 @@ iwx_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	case SIOCSIFFLAGS:
 		if (ifp->if_flags & IFF_UP) {
 			if (!(ifp->if_flags & IFF_RUNNING)) {
+				/* Force reload of firmware image from disk. */
+				sc->sc_fw.fw_status = IWX_FW_STATUS_NONE;
 				err = iwx_init(ifp);
 			}
 		} else {
@@ -9343,7 +9334,7 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 	case PCI_PRODUCT_INTEL_WL_22500_1:
 		sc->sc_fwname = "iwx-cc-a0-63";
 		sc->sc_device_family = IWX_DEVICE_FAMILY_22000;
-		sc->sc_integrated = 1;
+		sc->sc_integrated = 0;
 		sc->sc_ltr_delay = IWX_SOC_FLAGS_LTR_APPLY_DELAY_NONE;
 		sc->sc_low_latency_xtal = 0;
 		sc->sc_xtal_latency = 0;
@@ -9363,7 +9354,7 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_integrated = 1;
 		sc->sc_ltr_delay = IWX_SOC_FLAGS_LTR_APPLY_DELAY_200;
 		sc->sc_low_latency_xtal = 0;
-		sc->sc_xtal_latency = 5000;
+		sc->sc_xtal_latency = 500;
 		sc->sc_tx_with_siso_diversity = 0;
 		sc->sc_uhb_supported = 0;
 		break;
@@ -9371,9 +9362,9 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_fwname = "iwx-Qu-c0-hr-b0-63";
 		sc->sc_device_family = IWX_DEVICE_FAMILY_22000;
 		sc->sc_integrated = 1;
-		sc->sc_ltr_delay = IWX_SOC_FLAGS_LTR_APPLY_DELAY_200;
+		sc->sc_ltr_delay = IWX_SOC_FLAGS_LTR_APPLY_DELAY_1820;
 		sc->sc_low_latency_xtal = 0;
-		sc->sc_xtal_latency = 5000;
+		sc->sc_xtal_latency = 1820;
 		sc->sc_tx_with_siso_diversity = 0;
 		sc->sc_uhb_supported = 0;
 		break;
@@ -9573,13 +9564,19 @@ iwx_resume(struct iwx_softc *sc)
 	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, 0x40);
 	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
 
-	/* reconfigure the MSI-X mapping to get the correct IRQ for rfkill */
-	iwx_conf_msix_hw(sc, 0);
+	if (!sc->sc_msix) {
+		/* Hardware bug workaround. */
+		reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag,
+		    PCI_COMMAND_STATUS_REG);
+		if (reg & PCI_COMMAND_INTERRUPT_DISABLE)
+			reg &= ~PCI_COMMAND_INTERRUPT_DISABLE;
+		pci_conf_write(sc->sc_pct, sc->sc_pcitag,
+		    PCI_COMMAND_STATUS_REG, reg);
+	}
 
-	iwx_enable_rfkill_int(sc);
-	iwx_check_rfkill(sc);
+	iwx_disable_interrupts(sc);
 
-	return iwx_prepare_card_hw(sc);
+	return iwx_start_hw(sc);
 }
 
 int

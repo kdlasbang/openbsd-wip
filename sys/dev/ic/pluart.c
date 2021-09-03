@@ -1,4 +1,4 @@
-/*	$OpenBSD: pluart.c,v 1.5 2020/01/10 04:10:15 cheloha Exp $	*/
+/*	$OpenBSD: pluart.c,v 1.7 2021/09/01 09:29:31 jan Exp $	*/
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2005 Dale Rahn <drahn@dalerahn.com>
@@ -124,7 +124,6 @@ void pluartcnputc(dev_t dev, int c);
 void pluartcnpollc(dev_t dev, int on);
 int  pluart_param(struct tty *tp, struct termios *t);
 void pluart_start(struct tty *);
-void pluart_pwroff(struct pluart_softc *sc);
 void pluart_diag(void *arg);
 void pluart_raisedtr(void *arg);
 void pluart_softint(void *arg);
@@ -347,11 +346,6 @@ out:
 }
 
 void
-pluart_pwroff(struct pluart_softc *sc)
-{
-}
-
-void
 pluart_diag(void *arg)
 {
 	struct pluart_softc *sc = arg;
@@ -538,7 +532,7 @@ pluartopen(dev_t dev, int flag, int mode, struct proc *p)
 		SET(tp->t_state, TS_CARR_ON); /* XXX */
 
 
-	} else if (ISSET(tp->t_state, TS_XCLUDE) && p->p_ucred->cr_uid != 0)
+	} else if (ISSET(tp->t_state, TS_XCLUDE) && suser(p) != 0)
 		return EBUSY;
 	else
 		s = spltty();
@@ -572,9 +566,6 @@ pluartopen(dev_t dev, int flag, int mode, struct proc *p)
 				 */
 				if (error && ISSET(tp->t_state, TS_WOPEN)) {
 					CLR(tp->t_state, TS_WOPEN);
-					if (!sc->sc_cua && !ISSET(tp->t_state,
-					    TS_ISOPEN))
-						pluart_pwroff(sc);
 					splx(s);
 					return error;
 				}
@@ -606,9 +597,6 @@ pluartclose(dev_t dev, int flag, int mode, struct proc *p)
 		//CLR(sc->sc_ucr3, IMXUART_CR3_DSR);
 		//bus_space_write_4(iot, ioh, IMXUART_UCR3, sc->sc_ucr3);
 		timeout_add_sec(&sc->sc_dtr_tmo, 2);
-	} else {
-		/* no one else waiting; turn off the uart */
-		pluart_pwroff(sc);
 	}
 	CLR(tp->t_state, TS_BUSY | TS_FLUSH);
 
