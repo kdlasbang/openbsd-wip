@@ -33,6 +33,7 @@
 
 int	acpipwrres_match(struct device *, void *, void *);
 void	acpipwrres_attach(struct device *, struct device *, void *);
+int	acpipwrres_activate(struct device *, int);
 
 #ifdef ACPIPWRRES_DEBUG
 #define DPRINTF(x)	printf x
@@ -66,7 +67,8 @@ struct acpipwrres_consumer {
 };
 
 struct cfattach acpipwrres_ca = {
-	sizeof(struct acpipwrres_softc), acpipwrres_match, acpipwrres_attach
+	sizeof(struct acpipwrres_softc), acpipwrres_match, acpipwrres_attach,
+	NULL, acpipwrres_activate
 };
 
 struct cfdriver acpipwrres_cd = {
@@ -76,6 +78,26 @@ struct cfdriver acpipwrres_cd = {
 int	acpipwrres_hascons(struct acpipwrres_softc *, struct aml_node *);
 int	acpipwrres_addcons(struct acpipwrres_softc *, struct aml_node *);
 int	acpipwrres_foundcons(struct aml_node *, void *);
+
+int
+acpipwrres_activate(struct device *self, int act)
+{
+	struct acpipwrres_softc	*sc = (struct acpipwrres_softc *)self;
+	struct aml_value res;
+
+	switch (act) {
+	case DVACT_RESUME:
+		printf("%s: deactivating\n", DEVNAME(sc));
+		memset(&res, 0, sizeof(res));
+		aml_evalname(sc->sc_acpi, sc->sc_devnode, "_ON", 0,
+		    NULL, &res);
+		aml_evalname(sc->sc_acpi, sc->sc_devnode, "_OFF", 0,
+		    NULL, &res);
+		aml_freevalue(&res);
+	}
+
+	return 0;
+}
 
 int
 acpipwrres_match(struct device *parent, void *match, void *aux)
@@ -139,12 +161,20 @@ acpipwrres_attach(struct device *parent, struct device *self, void *aux)
 			printf(" %s%s", cons->cs_node->name,
 			   (SIMPLEQ_NEXT(cons, cs_next) == NULL) ? "" : ",");
 	}
+
+	memset(&res, 0, sizeof(res));
+	aml_evalname(sc->sc_acpi, sc->sc_devnode, "_OFF", 0,
+	    NULL, &res);
+	aml_freevalue(&res);
+	printf(" (disabled)");
+
 	printf("\n");
 }
 
 int
 acpipwrres_ref_incr(struct acpipwrres_softc *sc, struct aml_node *node)
 {
+#if 0
 	struct aml_value		res;
 
 	if (!acpipwrres_hascons(sc, node))
@@ -152,13 +182,13 @@ acpipwrres_ref_incr(struct acpipwrres_softc *sc, struct aml_node *node)
 
 	DPRINTF(("%s: dev %s ON %d\n", DEVNAME(sc), node->name,
 	    sc->sc_cons_ref));
-
 	if (sc->sc_cons_ref++ == 0) {
 		memset(&res, 0, sizeof(res));
 		aml_evalname(sc->sc_acpi, sc->sc_devnode, "_ON", 0,
 		    NULL, &res);
 		aml_freevalue(&res);
 	}
+#endif
 
 	return (0);
 }
