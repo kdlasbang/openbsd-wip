@@ -1,4 +1,4 @@
-/*	$OpenBSD: map.c,v 1.12 2021/01/21 13:19:25 mpi Exp $ */
+/*	$OpenBSD: map.c,v 1.16 2021/09/01 08:06:49 mpi Exp $ */
 
 /*
  * Copyright (c) 2020 Martin Pieuchot <mpi@openbsd.org>
@@ -84,6 +84,9 @@ map_clear(struct map *map)
 {
 	struct mentry *mep;
 
+	if (map == NULL)
+		return;
+
 	while ((mep = RB_MIN(map, map)) != NULL) {
 		RB_REMOVE(map, map, mep);
 		free(mep);
@@ -138,7 +141,11 @@ map_insert(struct map *map, const char *key, struct bt_arg *bval,
 		free(mep->mval);
 		mep->mval = bval;
 		break;
+	case B_AT_BI_PID:
+	case B_AT_BI_TID:
+	case B_AT_BI_CPU:
 	case B_AT_BI_NSECS:
+	case B_AT_BI_ARG0 ... B_AT_BI_ARG9:
 	case B_AT_BI_RETVAL:
 		free(mep->mval);
 		mep->mval = ba_new(ba2long(bval, dtev), B_AT_LONG);
@@ -178,9 +185,6 @@ map_insert(struct map *map, const char *key, struct bt_arg *bval,
 	return map;
 }
 
-static struct bt_arg nullba = BA_INITIALIZER(0, B_AT_LONG);
-static struct bt_arg maxba = BA_INITIALIZER(LONG_MAX, B_AT_LONG);
-
 /* Print at most `top' entries of the map ordered by value. */
 void
 map_print(struct map *map, size_t top, const char *name)
@@ -192,10 +196,10 @@ map_print(struct map *map, size_t top, const char *name)
 	if (map == NULL)
 		return;
 
-	bprev = &maxba;
+	bprev = &g_maxba;
 	for (i = 0; i < top; i++) {
 		mcur = NULL;
-		bhigh = &nullba;
+		bhigh = &g_nullba;
 		RB_FOREACH(mep, map, map) {
 			if (bacmp(mep->mval, bhigh) >= 0 &&
 			    bacmp(mep->mval, bprev) < 0 &&

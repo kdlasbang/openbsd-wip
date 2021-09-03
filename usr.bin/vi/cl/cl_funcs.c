@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl_funcs.c,v 1.20 2016/05/27 09:18:11 martijn Exp $	*/
+/*	$OpenBSD: cl_funcs.c,v 1.22 2021/09/02 11:19:02 schwarze Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -437,7 +437,7 @@ cl_refresh(SCR *sp, int repaint)
 	 * If we received a killer signal, we're done, there's no point
 	 * in refreshing the screen.
 	 */
-	if (clp->killersig)
+	if (cl_sigterm)
 		return (0);
 
 	/*
@@ -582,7 +582,7 @@ cl_suspend(SCR *sp, int *allowedp)
 	 * unchanged.  In addition, the terminal has already been reset
 	 * correctly, so leave it alone.
 	 */
-	if (clp->killersig) {
+	if (cl_sigterm) {
 		F_CLR(clp, CL_SCR_EX_INIT | CL_SCR_VI_INIT);
 		return (0);
 	}
@@ -601,7 +601,7 @@ cl_suspend(SCR *sp, int *allowedp)
 	if (cl_ssize(sp, 1, NULL, NULL, &changed))
 		return (1);
 	if (changed)
-		F_SET(CLP(sp), CL_SIGWINCH);
+		cl_sigwinch = 1;
 
 	return (0);
 }

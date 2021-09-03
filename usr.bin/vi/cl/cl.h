@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl.h,v 1.10 2016/05/27 09:18:11 martijn Exp $	*/
+/*	$OpenBSD: cl.h,v 1.12 2021/09/02 11:19:02 schwarze Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -10,6 +10,10 @@
  *
  *	@(#)cl.h	10.19 (Berkeley) 9/24/96
  */
+
+extern	volatile sig_atomic_t cl_sigint;
+extern	volatile sig_atomic_t cl_sigterm;
+extern	volatile sig_atomic_t cl_sigwinch;
 
 typedef struct _cl_private {
 	CHAR_T	 ibuf[256];	/* Input keys. */
@@ -26,7 +30,6 @@ typedef struct _cl_private {
 	char	*rmso, *smso;	/* Inverse video terminal strings. */
 	char	*smcup, *rmcup;	/* Terminal start/stop strings. */
 
-	int	 killersig;	/* Killer signal. */
 #define	INDX_HUP	0
 #define	INDX_INT	1
 #define	INDX_TERM	2
@@ -45,11 +48,7 @@ typedef struct _cl_private {
 #define	CL_RENAME_OK	0x0004	/* User wants the windows renamed. */
 #define	CL_SCR_EX_INIT	0x0008	/* Ex screen initialized. */
 #define	CL_SCR_VI_INIT	0x0010	/* Vi screen initialized. */
-#define	CL_SIGHUP	0x0020	/* SIGHUP arrived. */
-#define	CL_SIGINT	0x0040	/* SIGINT arrived. */
-#define	CL_SIGTERM	0x0080	/* SIGTERM arrived. */
-#define	CL_SIGWINCH	0x0100	/* SIGWINCH arrived. */
-#define	CL_STDIN_TTY	0x0200	/* Talking to a terminal. */
+#define	CL_STDIN_TTY	0x0020	/* Talking to a terminal. */
 	u_int32_t flags;
 } CL_PRIVATE;
 

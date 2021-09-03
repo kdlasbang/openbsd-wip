@@ -1,4 +1,4 @@
-/* $OpenBSD: dtls_locl.h,v 1.4 2021/07/26 03:17:38 jsing Exp $ */
+/* $OpenBSD: dtls_locl.h,v 1.6 2021/08/31 13:34:55 jsing Exp $ */
 /*
  * DTLS implementation written by Nagendra Modadugu
  * (nagendra@cs.stanford.edu) for the OpenSSL project 2005.
@@ -132,13 +132,6 @@ typedef struct dtls1_state_internal_st {
 	unsigned char rcvd_cookie[DTLS1_COOKIE_LENGTH];
 	unsigned int cookie_len;
 
-	/*
-	 * The current data and handshake epoch.  This is initially
-	 * undefined, and starts at zero once the initial handshake is
-	 * completed
-	 */
-	unsigned short r_epoch;
-
 	/* records being received in the current epoch */
 	DTLS1_BITMAP bitmap;
 
@@ -173,13 +166,6 @@ typedef struct dtls1_state_internal_st {
 	struct hm_header_st r_msg_hdr;
 
 	struct dtls1_timeout_st timeout;
-
-	/* storage for Alert/Handshake protocol data received but not
-	 * yet processed by ssl3_read_bytes: */
-	unsigned char alert_fragment[DTLS1_AL_HEADER_LENGTH];
-	unsigned int alert_fragment_len;
-	unsigned char handshake_fragment[DTLS1_HM_HEADER_LENGTH];
-	unsigned int handshake_fragment_len;
 
 	unsigned int retransmitting;
 	unsigned int change_cipher_spec_ok;

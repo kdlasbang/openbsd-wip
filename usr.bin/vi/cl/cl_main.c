@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl_main.c,v 1.33 2016/05/05 20:36:41 martijn Exp $	*/
+/*	$OpenBSD: cl_main.c,v 1.35 2021/09/02 11:19:02 schwarze Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -32,6 +32,10 @@
 #include "cl.h"
 
 GS *__global_list;				/* GLOBAL: List of screens. */
+
+volatile sig_atomic_t cl_sigint;
+volatile sig_atomic_t cl_sigterm;
+volatile sig_atomic_t cl_sigwinch;
 
 static void	   cl_func_std(GS *);
 static CL_PRIVATE *cl_init(GS *);
@@ -115,9 +119,9 @@ main(int argc, char *argv[])
 	}
 
 	/* If a killer signal arrived, pretend we just got it. */
-	if (clp->killersig) {
-		(void)signal(clp->killersig, SIG_DFL);
-		(void)kill(getpid(), clp->killersig);
+	if (cl_sigterm) {
+		(void)signal(cl_sigterm, SIG_DFL);
+		(void)kill(getpid(), cl_sigterm);
 		/* NOTREACHED */
 	}
 
@@ -210,42 +214,23 @@ term_init(char *ttype)
 	}
 }
 
-#define	GLOBAL_CLP \
-	CL_PRIVATE *clp = GCLP(__global_list);
-static void
-h_hup(int signo)
-{
-	GLOBAL_CLP;
-
-	F_SET(clp, CL_SIGHUP);
-	clp->killersig = SIGHUP;
-}
-
 static void
 h_int(int signo)
 {
-	GLOBAL_CLP;
-
-	F_SET(clp, CL_SIGINT);
+	cl_sigint = 1;
 }
 
 static void
 h_term(int signo)
 {
-	GLOBAL_CLP;
-
-	F_SET(clp, CL_SIGTERM);
-	clp->killersig = SIGTERM;
+	cl_sigterm = signo;
 }
 
 static void
 h_winch(int signo)
 {
-	GLOBAL_CLP;
-
-	F_SET(clp, CL_SIGWINCH);
+	cl_sigwinch = 1;
 }
-#undef	GLOBAL_CLP
 
 /*
  * sig_init --
@@ -260,15 +245,19 @@ sig_init(GS *gp, SCR *sp)
 
 	clp = GCLP(gp);
 
+	cl_sigint = 0;
+	cl_sigterm = 0;
+	cl_sigwinch = 0;
+
 	if (sp == NULL) {
-		if (setsig(SIGHUP, &clp->oact[INDX_HUP], h_hup) ||
+		if (setsig(SIGHUP, &clp->oact[INDX_HUP], h_term) ||
 		    setsig(SIGINT, &clp->oact[INDX_INT], h_int) ||
 		    setsig(SIGTERM, &clp->oact[INDX_TERM], h_term) ||
 		    setsig(SIGWINCH, &clp->oact[INDX_WINCH], h_winch)
 		    )
 			err(1, NULL);
 	} else
-		if (setsig(SIGHUP, NULL, h_hup) ||
+		if (setsig(SIGHUP, NULL, h_term) ||
 		    setsig(SIGINT, NULL, h_int) ||
 		    setsig(SIGTERM, NULL, h_term) ||
 		    setsig(SIGWINCH, NULL, h_winch)
