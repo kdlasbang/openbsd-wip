@@ -207,6 +207,8 @@ void vmx_setmsrbw(struct vcpu *, uint32_t);
 void vmx_setmsrbrw(struct vcpu *, uint32_t);
 void svm_set_clean(struct vcpu *, uint32_t);
 void svm_set_dirty(struct vcpu *, uint32_t);
+int vm_putfuse(struct vm_fusebuf *);
+int vm_getfuse(struct vm_fusebuf *);
 
 int vmm_gpa_is_valid(struct vcpu *vcpu, paddr_t gpa, size_t obj_size);
 void vmm_init_pvclock(struct vcpu *, paddr_t);
@@ -311,6 +313,21 @@ extern struct gate_descriptor *idt;
 #define CR_READ		1
 #define CR_CLTS		2
 #define CR_LMSW		3
+
+extern int viofs_enq(struct vm_fusebuf *);
+extern int viofs_deq(struct vm_fusebuf *);
+
+int
+vm_putfuse(struct vm_fusebuf *buf)
+{
+	return viofs_enq(buf);
+}
+
+int
+vm_getfuse(struct vm_fusebuf *buf)
+{
+	return viofs_deq(buf);
+}
 
 /*
  * vmm_enabled
@@ -518,7 +535,12 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case VMM_IOC_WRITEVMPARAMS:
 		ret = vm_rwvmparams((struct vm_rwvmparams_params *)data, 1);
 		break;
-
+	case VMM_IOC_PUTFUSE:
+		ret = vm_putfuse((struct vm_fusebuf *)data);
+		break;
+	case VMM_IOC_GETFUSE:
+		ret = vm_getfuse((struct vm_fusebuf *)data);
+		break;
 	default:
 		DPRINTF("%s: unknown ioctl code 0x%lx\n", __func__, cmd);
 		ret = ENOTTY;

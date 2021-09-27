@@ -63,15 +63,6 @@ virtiofsclient_getattr(const char *path, struct stat *statbuf)
 {
 	warnx("unimplemented function %s for path %s", __func__, path);
 
-/* XXX testing */
-	memset(statbuf, 0, sizeof(struct stat));
-	if (strcmp(path, "/") == 0) {
-		statbuf->st_mode = S_IFDIR | 0755;
-		statbuf->st_nlink = 2;
-		return 0;
-	}
-/* XXX */
-
 	return -EIO;
 }
 
