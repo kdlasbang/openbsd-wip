@@ -15,12 +15,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define PAGE_SIZE 4096
+
 #include <err.h>
 #include <fuse.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <sys/errno.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
+
+#include <machine/vmmvar.h>
 
 int virtiofsclient_getattr(const char *, struct stat *);
 void *virtiofsclient_init(struct fuse_conn_info *);
@@ -57,6 +63,36 @@ int virtiofsclient_ftruncate(const char *, off_t, struct fuse_file_info *);
 int virtiofsclient_fgetattr(const char *, struct stat *,
     struct fuse_file_info *);
 int virtiofsclient_utimens(const char *, const struct timespec *);
+int virtiofsclient_send_fuse_msg(void *, size_t);
+
+int
+virtiofsclient_send_fuse_msg(void *buf, size_t size)
+{
+	int fd, ret;
+	struct vm_fusebuf fbuf;
+	size_t len;
+
+	if (size < sizeof(fbuf.payload))
+		len = size;
+	else
+		len = sizeof(fbuf.payload);
+
+
+	memset(&fbuf, 0, sizeof(fbuf));
+	memcpy(&fbuf.payload, buf, len);
+
+	fd = open("/dev/vmm", O_RDWR);
+	if (fd == -1)
+		err(1, "open /dev/vmm");
+
+	ret = ioctl(fd, VMM_IOC_PUTFUSE, &fbuf);
+	if (ret)
+		err(1, "ioctl");
+
+	close(fd);
+
+	return ret;
+}
 
 int
 virtiofsclient_getattr(const char *path, struct stat *statbuf)
