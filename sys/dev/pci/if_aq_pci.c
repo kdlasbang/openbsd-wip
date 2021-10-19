@@ -1,4 +1,4 @@
-/* $OpenBSD: if_aq_pci.c,v 1.1 2021/09/02 10:11:21 mlarkin Exp $ */
+/* $OpenBSD: if_aq_pci.c,v 1.4 2021/10/09 08:38:13 jmatthew Exp $ */
 /*	$NetBSD: if_aq.c,v 1.27 2021/06/16 00:21:18 riastradh Exp $	*/
 
 /*
@@ -78,6 +78,8 @@
  * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+#include "bpfilter.h"
+
 #include <sys/types.h>
 #include <sys/device.h>
 #include <sys/param.h>
@@ -94,6 +96,10 @@
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcidevs.h>
+
+#if NBPFILTER > 0
+#include <net/bpf.h>
+#endif
 
 /* #define AQ_DEBUG 1 */
 #ifdef AQ_DEBUG
@@ -935,7 +941,7 @@ aq_attach(struct device *parent, struct device *self, void *aux)
 	struct aq_softc *sc = (struct aq_softc *)self;
 	struct pci_attach_args *pa = aux;
 	const struct aq_product *aqp;
-	pcireg_t command, bar, memtype;
+	pcireg_t bar, memtype;
 	pci_chipset_tag_t pc;
 	pci_intr_handle_t ih;
 	int (*isr)(void *);
@@ -951,19 +957,14 @@ aq_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_pc = pc = pa->pa_pc;
 	sc->sc_pcitag = tag = pa->pa_tag;
 
-	command = pci_conf_read(pa->pa_pc, pa->pa_tag, PCI_COMMAND_STATUS_REG);
-	command |= PCI_COMMAND_MASTER_ENABLE;
-	pci_conf_write(pa->pa_pc, pa->pa_tag, PCI_COMMAND_STATUS_REG, command);
-
 	sc->sc_product = PCI_PRODUCT(pa->pa_id);
 	sc->sc_revision = PCI_REVISION(pa->pa_class);
 
 	aqp = aq_lookup(pa);
 
 	bar = pci_conf_read(pc, tag, AQ_BAR0);
-	if ((PCI_MAPREG_MEM_ADDR(bar) == 0) ||
-	    (PCI_MAPREG_TYPE(bar) != PCI_MAPREG_TYPE_MEM)) {
-		printf("%s: wrong BAR type\n", DEVNAME(sc));
+	if (PCI_MAPREG_TYPE(bar) != PCI_MAPREG_TYPE_MEM) {
+		printf(": wrong BAR type\n");
 		return;
 	}
 
@@ -2295,8 +2296,8 @@ aq_start(struct ifqueue *ifq)
 		as->as_m = m;
 
 #if NBPFILTER > 0
-		if (ifp->if_bpf)
-			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_OUT);
+		if (ifq->ifq_if->if_bpf)
+			bpf_mtap_ether(ifq->ifq_if->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
 		bus_dmamap_sync(sc->sc_dmat, as->as_map, 0,
 		    as->as_map->dm_mapsize, BUS_DMASYNC_PREWRITE);

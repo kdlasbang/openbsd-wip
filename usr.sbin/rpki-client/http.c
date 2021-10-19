@@ -1,4 +1,4 @@
-/*	$OpenBSD: http.c,v 1.39 2021/09/10 13:20:03 claudio Exp $  */
+/*	$OpenBSD: http.c,v 1.42 2021/10/05 07:22:21 claudio Exp $  */
 /*
  * Copyright (c) 2020 Nils Fisher <nils_fisher@hotmail.com>
  * Copyright (c) 2020 Claudio Jeker <claudio@openbsd.org>
@@ -1311,6 +1311,9 @@ http_read(struct http_connection *conn)
 	char *buf;
 	int done;
 
+	if (conn->bufpos > 0)
+		goto again;
+
 read_more:
 	s = tls_read(conn->tls, conn->buf + conn->bufpos,
 	    conn->bufsz - conn->bufpos);
@@ -1352,8 +1355,11 @@ again:
 			if (buf == NULL)
 				goto read_more;
 			/* empty line, end of header */
-			if (*buf == '\0')
+			if (*buf == '\0') {
+				free(buf);
 				break;
+			}
+			free(buf);
 		}
 		/* proxy is ready to take connection */
 		if (conn->status == 200) {
@@ -1387,7 +1393,7 @@ again:
 
 			if (rv == -1)
 				return http_failed(conn);
-			if (rv ==  0)
+			if (rv == 0)
 				done = 1;
 		}
 
@@ -1419,10 +1425,10 @@ again:
 			 * After redirects all data needs to be discarded.
 			 */
 			if (conn->iosz < (off_t)conn->bufpos) {
-				conn->bufpos  -= conn->iosz;
+				conn->bufpos -= conn->iosz;
 				conn->iosz = 0;
 			} else {
-				conn->iosz  -= conn->bufpos;
+				conn->iosz -= conn->bufpos;
 				conn->bufpos = 0;
 			}
 			if (conn->chunked)
@@ -1445,6 +1451,7 @@ again:
 			free(buf);
 			return http_failed(conn);
 		}
+		free(buf);
 
 		/*
 		 * check if transfer is done, in which case the last trailer
