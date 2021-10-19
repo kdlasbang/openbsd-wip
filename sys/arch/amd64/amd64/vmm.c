@@ -207,8 +207,8 @@ void vmx_setmsrbw(struct vcpu *, uint32_t);
 void vmx_setmsrbrw(struct vcpu *, uint32_t);
 void svm_set_clean(struct vcpu *, uint32_t);
 void svm_set_dirty(struct vcpu *, uint32_t);
-int vm_putfuse(struct vm_fusebuf *);
-int vm_getfuse(struct vm_fusebuf *);
+int vm_fsop_put(struct vm_fsop *);
+int vm_fsop_get(struct vm_fsop *);
 
 int vmm_gpa_is_valid(struct vcpu *vcpu, paddr_t gpa, size_t obj_size);
 void vmm_init_pvclock(struct vcpu *, paddr_t);
@@ -314,19 +314,19 @@ extern struct gate_descriptor *idt;
 #define CR_CLTS		2
 #define CR_LMSW		3
 
-extern int viofs_enq(struct vm_fusebuf *);
-extern int viofs_deq(struct vm_fusebuf *);
+extern int vmmfs_fsop_put(struct vm_fsop *);
+extern int vmmfs_fsop_get(struct vm_fsop *);
 
 int
-vm_putfuse(struct vm_fusebuf *buf)
+vm_fsop_put(struct vm_fsop *buf)
 {
-	return viofs_enq(buf);
+	return vmmfs_fsop_put(buf);
 }
 
 int
-vm_getfuse(struct vm_fusebuf *buf)
+vm_fsop_get(struct vm_fsop *buf)
 {
-	return viofs_deq(buf);
+	return vmmfs_fsop_get(buf);
 }
 
 /*
@@ -367,6 +367,7 @@ vmm_probe(struct device *parent, void *match, void *aux)
 
 	if (strcmp(*busname, vmm_cd.cd_name) != 0)
 		return (0);
+
 	return (1);
 }
 
@@ -473,6 +474,7 @@ vmm_attach(struct device *parent, struct device *self, void *aux)
 int
 vmmopen(dev_t dev, int flag, int mode, struct proc *p)
 {
+#if 0
 	/* Don't allow open if we didn't attach */
 	if (vmm_softc == NULL)
 		return (ENODEV);
@@ -480,7 +482,7 @@ vmmopen(dev_t dev, int flag, int mode, struct proc *p)
 	/* Don't allow open if we didn't detect any supported CPUs */
 	if (vmm_softc->mode != VMM_MODE_EPT && vmm_softc->mode != VMM_MODE_RVI)
 		return (ENODEV);
-
+#endif
 	return 0;
 }
 
@@ -535,14 +537,15 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case VMM_IOC_WRITEVMPARAMS:
 		ret = vm_rwvmparams((struct vm_rwvmparams_params *)data, 1);
 		break;
-	case VMM_IOC_PUTFUSE:
-		ret = vm_putfuse((struct vm_fusebuf *)data);
+	case VMM_IOC_FSOP_PUT:
+		ret = vm_fsop_put((struct vm_fsop *)data);
+		printf("%s: ioctl fsop_put complete\n", __func__);
 		break;
-	case VMM_IOC_GETFUSE:
-		ret = vm_getfuse((struct vm_fusebuf *)data);
+	case VMM_IOC_FSOP_GET:
+		ret = vm_fsop_get((struct vm_fsop *)data);
 		break;
 	default:
-		DPRINTF("%s: unknown ioctl code 0x%lx\n", __func__, cmd);
+		printf("%s: unknown ioctl code 0x%lx\n", __func__, cmd);
 		ret = ENOTTY;
 	}
 
@@ -577,6 +580,8 @@ pledge_ioctl_vmm(struct proc *p, long com)
 	case VMM_IOC_MPROTECT_EPT:
 	case VMM_IOC_READVMPARAMS:
 	case VMM_IOC_WRITEVMPARAMS:
+	case VMM_IOC_FSOP_GET:
+	case VMM_IOC_FSOP_PUT:
 		return (0);
 	}
 
@@ -6652,6 +6657,10 @@ svm_handle_msr(struct vcpu *vcpu)
 		case MSR_DE_CFG:
 			/* LFENCE seralizing bit is set by host */
 			*rax = DE_CFG_SERIALIZE_LFENCE;
+			*rdx = 0;
+			break;
+		case MSR_AMD_VM_CR:
+			*rax = 0;
 			*rdx = 0;
 			break;
 		default:

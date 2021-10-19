@@ -26852,6 +26852,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "82C092G",
 	},
 	{
+	    PCI_VENDOR_OPENBSD, PCI_PRODUCT_OPENBSD_VMMFS,
+	    "VMM Filesystem",
+	},
+	{
 	    PCI_VENDOR_OPENBSD, PCI_PRODUCT_OPENBSD_PCHB,
 	    "VMM Host",
 	},

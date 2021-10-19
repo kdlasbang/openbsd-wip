@@ -704,3 +704,4 @@ viofs*		at virtio?	# Virtio-FS device
 vioscsi*	at virtio?	# Virtio SCSI device
 #viocon*	at virtio?	# Virtio console device
 vmmci*		at virtio?	# VMM control interface
+vmmfs*		at pci?		# VMM Filesystem device

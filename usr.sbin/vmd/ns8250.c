@@ -20,6 +20,7 @@
 
 #include <dev/ic/comreg.h>
 
+#define PAGE_SIZE 4096
 #include <machine/vmmvar.h>
 
 #include <errno.h>

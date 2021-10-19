@@ -20,6 +20,7 @@
 #include <dev/ic/mc146818reg.h>
 #include <dev/isa/isareg.h>
 
+#define PAGE_SIZE 4096
 #include <machine/vmmvar.h>
 
 #include <event.h>

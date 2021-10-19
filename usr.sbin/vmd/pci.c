@@ -21,6 +21,7 @@
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcidevs.h>
 #include <dev/pv/virtioreg.h>
+#define PAGE_SIZE 4096
 #include <machine/vmmvar.h>
 
 #include <string.h>

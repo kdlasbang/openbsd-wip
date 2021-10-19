@@ -10,6 +10,7 @@ CFLAGS+=	-Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+=	-Wmissing-declarations
 CFLAGS+=	-Wshadow -Wpointer-arith -Wcast-qual
 CFLAGS+=	-Wsign-compare
+CFLAGS+=	-I../vmd
 
 LDADD+=		-lfuse
 DPADD+=		${LIBFUSE}

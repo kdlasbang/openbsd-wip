@@ -77,7 +77,7 @@ control_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	 * recvfd - for the proc fd exchange.
 	 * sendfd - for send and receive.
 	 */
-	if (pledge("stdio unix recvfd sendfd", NULL) == -1)
+	if (pledge("stdio unix recvfd sendfd rpath", NULL) == -1)
 		fatal("pledge");
 }
 

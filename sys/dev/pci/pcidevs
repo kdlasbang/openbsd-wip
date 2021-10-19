@@ -7493,6 +7493,7 @@ product OLICOM OC2326		0x0014	OC2326
 product OMEGA 82C092G		0x1221	82C092G
 
 /* OpenBSD VMM products */
+product OPENBSD VMMFS		0x0295	VMM Filesystem
 product OPENBSD PCHB		0x0666	VMM Host
 product OPENBSD CONTROL		0x0777	VMM Control
 

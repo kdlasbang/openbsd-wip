@@ -21,6 +21,7 @@
 
 #include <dev/isa/isareg.h>
 
+#define PAGE_SIZE 4096
 #include <machine/vmmvar.h>
 
 #include <unistd.h>

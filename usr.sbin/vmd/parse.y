@@ -28,6 +28,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#define PAGE_SIZE 4096
 #include <machine/vmmvar.h>
 
 #include <net/if.h>

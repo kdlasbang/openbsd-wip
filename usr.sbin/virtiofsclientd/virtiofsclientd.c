@@ -28,6 +28,8 @@
 
 #include <machine/vmmvar.h>
 
+#include "vmd.h"
+
 int virtiofsclient_getattr(const char *, struct stat *);
 void *virtiofsclient_init(struct fuse_conn_info *);
 int virtiofsclient_readlink(const char *, char *, size_t);
@@ -63,31 +65,30 @@ int virtiofsclient_ftruncate(const char *, off_t, struct fuse_file_info *);
 int virtiofsclient_fgetattr(const char *, struct stat *,
     struct fuse_file_info *);
 int virtiofsclient_utimens(const char *, const struct timespec *);
-int virtiofsclient_send_fuse_msg(void *, size_t);
+int virtiofsclient_send_fuse_msg(struct vm_fsop *);
+
+static uint64_t curseq;
 
 int
-virtiofsclient_send_fuse_msg(void *buf, size_t size)
+virtiofsclient_send_fuse_msg(struct vm_fsop *buf)
 {
 	int fd, ret;
-	struct vm_fusebuf fbuf;
-	size_t len;
+	uint64_t seq;
 
-	if (size < sizeof(fbuf.payload))
-		len = size;
-	else
-		len = sizeof(fbuf.payload);
-
-
-	memset(&fbuf, 0, sizeof(fbuf));
-	memcpy(&fbuf.payload, buf, len);
+	seq = buf->seq;
 
 	fd = open("/dev/vmm", O_RDWR);
 	if (fd == -1)
 		err(1, "open /dev/vmm");
 
-	ret = ioctl(fd, VMM_IOC_PUTFUSE, &fbuf);
+	printf("%s: calling FSOP_PUT ioctl for opcode %d seq %lld\n", __func__,
+	    buf->opcode, buf->seq);
+
+	ret = ioctl(fd, VMM_IOC_FSOP_PUT, buf);
 	if (ret)
 		err(1, "ioctl");
+
+	printf("%s: after FSOP_PUT ioctl for seq %lld, new seq=%lld\n", __func__, seq, buf->seq);
 
 	close(fd);
 
@@ -97,9 +98,17 @@ virtiofsclient_send_fuse_msg(void *buf, size_t size)
 int
 virtiofsclient_getattr(const char *path, struct stat *statbuf)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+	struct vm_fsop_getattr ga;
+	struct vm_fsop op;
 
-	return -EIO;
+	printf("%s: called\n", __func__);
+
+	op.opcode = VMMFSOP_GETATTR;
+	op.seq = ++curseq;
+	strlcpy((char *)&ga.name, path, 256);
+	memcpy(&op.payload, &ga, sizeof(ga));
+
+	return virtiofsclient_send_fuse_msg(&op);
 }
 
 void *
@@ -236,9 +245,28 @@ virtiofsclient_write(const char *path, const char *buf, size_t size,
 int
 virtiofsclient_statfs(const char *path, struct statvfs *buf)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+	struct vm_fsop_statfs ga, *retbuf;
+	struct vm_fsop op;
+	int ret;
 
-	return -EIO;
+	printf("%s: called\n", __func__);
+
+	op.opcode = VMMFSOP_STATFS;
+	op.seq = ++curseq;
+	strlcpy((char *)&ga.name, path, 256);
+	memcpy(&op.payload, &ga, sizeof(ga));
+
+	ret = virtiofsclient_send_fuse_msg(&op);
+	if (!ret) {
+		retbuf = (struct vm_fsop_statfs *)&op.payload;
+
+		memcpy(buf, &retbuf->statvfs, sizeof(*buf));
+		printf("%s: f_bsize = %ld\n", __func__, retbuf->statvfs.f_bsize);
+		printf("%s: f_blocks = %lld\n", __func__, retbuf->statvfs.f_blocks);
+		printf("%s: f_bavail = %lld\n", __func__, retbuf->statvfs.f_bavail);
+	}
+
+	return ret;
 }
 
 int

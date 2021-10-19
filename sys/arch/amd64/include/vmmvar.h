@@ -538,6 +538,14 @@ struct vm_intr_params {
 	uint16_t		vip_intr;
 };
 
+struct vm_fsop {
+	uint32_t		opcode;
+	uint64_t		seq;
+
+	char			payload[1024];
+};
+
+/* unused */
 struct vm_fusebuf {
 	uint32_t		opcode;
 	char			payload[PAGE_SIZE - sizeof(uint32_t)];
@@ -600,8 +608,8 @@ struct vm_mprotect_ept_params {
 #define VMM_IOC_WRITEVMPARAMS _IOW('V', 10, struct vm_rwvmparams_params)
 /* Control the protection of ept pages*/
 #define VMM_IOC_MPROTECT_EPT _IOW('V', 11, struct vm_mprotect_ept_params)
-#define VMM_IOC_PUTFUSE _IOWR('V', 12, struct vm_fusebuf)
-#define VMM_IOC_GETFUSE _IOWR('V', 13, struct vm_fusebuf)
+#define VMM_IOC_FSOP_PUT _IOWR('V', 12, struct vm_fsop)
+#define VMM_IOC_FSOP_GET _IOWR('V', 13, struct vm_fsop)
 
 /* CPUID masks */
 /*
@@ -630,11 +638,11 @@ struct vm_mprotect_ept_params {
  *  Speculative execution control features (AMD)
  */
 #define VMM_CPUIDECX_MASK ~(CPUIDECX_EST | CPUIDECX_TM2 | CPUIDECX_MWAIT | \
-    CPUIDECX_PDCM | CPUIDECX_VMX | CPUIDECX_DTES64 | \
+    CPUIDECX_PDCM | CPUIDECX_DTES64 | \
     CPUIDECX_DSCPL | CPUIDECX_SMX | CPUIDECX_CNXTID | \
     CPUIDECX_SDBG | CPUIDECX_XTPR | CPUIDECX_PCID | \
     CPUIDECX_DCA | CPUIDECX_X2APIC | CPUIDECX_DEADLINE)
-#define VMM_ECPUIDECX_MASK ~(CPUIDECX_SVM | CPUIDECX_MWAITX)
+#define VMM_ECPUIDECX_MASK ~(CPUIDECX_MWAITX)
 #define VMM_CPUIDEDX_MASK ~(CPUID_ACPI | CPUID_TM | \
     CPUID_HTT | CPUID_DS | CPUID_APIC | \
     CPUID_PSN | CPUID_SS | CPUID_PBE | \

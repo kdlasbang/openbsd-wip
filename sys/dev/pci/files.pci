@@ -854,5 +854,10 @@ file	dev/pci/if_rge.c		rge
 attach	com at pci with com_pci
 file	dev/pci/com_pci.c		com_pci
 
+# VMM Filesystem Device
+device	vmmfs
+attach	vmmfs at pci
+file	dev/pci/vmmfs.c			vmmfs
+
 include "dev/pci/files.agp"
 include "dev/pci/drm/files.drm"

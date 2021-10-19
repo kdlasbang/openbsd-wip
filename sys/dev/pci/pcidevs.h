@@ -7498,6 +7498,7 @@
 #define	PCI_PRODUCT_OMEGA_82C092G	0x1221		/* 82C092G */
 
 /* OpenBSD VMM products */
+#define	PCI_PRODUCT_OPENBSD_VMMFS	0x0295		/* VMM Filesystem */
 #define	PCI_PRODUCT_OPENBSD_PCHB	0x0666		/* VMM Host */
 #define	PCI_PRODUCT_OPENBSD_CONTROL	0x0777		/* VMM Control */
 

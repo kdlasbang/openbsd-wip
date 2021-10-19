@@ -40,6 +40,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/mount.h>
+
 #include "atomicio.h"
 #include "pci.h"
 #include "vioscsi.h"
@@ -53,6 +57,7 @@ struct vioblk_dev *vioblk;
 struct vionet_dev *vionet;
 struct vioscsi_dev *vioscsi;
 struct vmmci_dev vmmci;
+struct vmmfs_dev vmmfs;
 
 int nr_vionet;
 int nr_vioblk;
@@ -67,6 +72,8 @@ int nr_vioblk;
 
 #define RXQ	0
 #define TXQ	1
+
+int vmmfs_io(int, uint16_t, uint32_t *, uint8_t *, void *, uint8_t);
 
 const char *
 vioblk_cmd_name(uint32_t type)
@@ -2014,6 +2021,23 @@ virtio_init(struct vmd_vm *vm, int child_cdrom,
 	vmmci.pci_id = id;
 
 	evtimer_set(&vmmci.timeout, vmmci_timeout, NULL);
+	/* filesystem passthrough device */
+	if (pci_add_device(&id, PCI_VENDOR_OPENBSD,
+	    PCI_PRODUCT_OPENBSD_VMMFS,
+	    PCI_CLASS_COMMUNICATIONS,
+	    PCI_SUBCLASS_COMMUNICATIONS_MISC,
+	    PCI_VENDOR_OPENBSD,
+	    PCI_PRODUCT_OPENBSD_VMMFS, 1, NULL)) {
+		log_warnx("%s: can't add PCI vmm fs device",
+		    __progname);
+		return;
+	}
+
+	if (pci_add_bar(id, PCI_MAPREG_TYPE_IO, vmmfs_io, NULL)) {
+		log_warnx("%s: can't add bar for vmm fs device",
+		    __progname);
+		return;
+	}
 }
 
 /*
@@ -2363,4 +2387,105 @@ virtio_start(struct vm_create_params *vcp)
 			return;
 		}
 	}
+}
+
+struct vm_fsop vmmfs_op;
+
+void
+vmmfs_getattr(void)
+{
+	struct vm_fsop_getattr *op;
+
+	op = (struct vm_fsop_getattr *)&vmmfs_op.payload;
+
+	log_debug("%s: requested path: %s", __func__,
+	    op->name);
+}
+
+void
+vmmfs_statfs(void)
+{
+	struct vm_fsop_statfs *op;
+	char path[256];
+
+	op = (struct vm_fsop_statfs *)&vmmfs_op.payload;
+
+	log_debug("%s: requested path: %s", __func__,
+	    op->name);
+
+	/* XXX this is not right */
+	snprintf(path, 256, "/export/vmmfs/%s/.", op->name);
+
+	if (statvfs(path, &op->statvfs)) {
+		log_warn("%s: statvfs returned error\n", __func__);
+	}
+
+	log_debug("%s: f_bsize=%ld\n", __func__, op->statvfs.f_bsize);
+	log_debug("%s: f_bfree=%lld\n", __func__, op->statvfs.f_bfree);
+	log_debug("%s: f_blocks=%lld\n", __func__, op->statvfs.f_blocks);
+}
+
+void
+vmmfs_finish_op(void)
+{
+	log_debug("%s: finishing sequence number %lld", __func__,
+	    vmmfs_op.seq);
+
+	vmmfs_op.seq = 0;
+}
+
+void
+vmmfs_dispatch(void)
+{
+	log_debug("%s: opcode %d", __func__, vmmfs_op.opcode);
+
+	switch (vmmfs_op.opcode) {
+	case VMMFSOP_GETATTR:
+		vmmfs_getattr();
+		break;
+	case VMMFSOP_STATFS:
+		vmmfs_statfs();
+		break;
+	}
+
+	vmmfs_finish_op();
+	log_debug("%s: exits\n", __func__);
+}
+
+int
+vmmfs_io(int dir, uint16_t reg, uint32_t *data, uint8_t *intr,
+    void *unused, uint8_t sz)
+{
+	*intr = 0xFF;
+
+	if (dir == 0) {
+		switch (reg) {
+		case 0:
+			vmmfs.addr &= 0xFFFFFFFF00000000ULL;
+			vmmfs.addr |= *data;
+			log_debug("%s: wrote low address 0x%x, "
+			    "new full address 0x%llx", __func__, *data,
+			    (uint64_t)vmmfs.addr);
+			break;
+		case 4:
+			vmmfs.addr &= 0x00000000FFFFFFFFULL;
+			vmmfs.addr |= (uint64_t)*data << 32;
+			log_debug("%s: wrote high address 0x%x, "
+			    "new full address 0x%llx", __func__, *data,
+			    (uint64_t)vmmfs.addr);
+			break;
+		case 9:
+			log_debug("%s: doorbell ring", __func__);
+			if (read_mem(vmmfs.addr, &vmmfs_op, sizeof(vmmfs_op)))
+				log_warn("%s: couldn't read fsop", __func__);
+			else {
+				vmmfs_dispatch();
+				if (write_mem(vmmfs.addr, &vmmfs_op, sizeof(vmmfs_op)))
+					log_warn("%s: couldn't write fsop", __func__);
+			}
+			break;
+		}
+	}
+
+	return (0);
 }
