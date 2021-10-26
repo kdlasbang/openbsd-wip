@@ -2395,11 +2395,23 @@ void
 vmmfs_getattr(void)
 {
 	struct vm_fsop_getattr *op;
+	char path[256];
+	int err;
 
 	op = (struct vm_fsop_getattr *)&vmmfs_op.payload;
 
 	log_debug("%s: requested path: %s", __func__,
 	    op->name);
+
+	/* XXX this is not right */
+	snprintf(path, 256, "/export/vmmfs/%s", op->name);
+
+	err = stat(path, &op->statbuf);
+	op->err = err;
+
+	if (err) {
+		log_warn("%s: stat returned error\n", __func__);
+	}
 }
 
 void
@@ -2407,6 +2419,7 @@ vmmfs_statfs(void)
 {
 	struct vm_fsop_statfs *op;
 	char path[256];
+	int err;
 
 	op = (struct vm_fsop_statfs *)&vmmfs_op.payload;
 
@@ -2416,13 +2429,41 @@ vmmfs_statfs(void)
 	/* XXX this is not right */
 	snprintf(path, 256, "/export/vmmfs/%s/.", op->name);
 
-	if (statvfs(path, &op->statvfs)) {
+	err = statvfs(path, &op->statvfs);
+	op->err = err;
+
+	if (err) {
 		log_warn("%s: statvfs returned error\n", __func__);
 	}
 
 	log_debug("%s: f_bsize=%ld\n", __func__, op->statvfs.f_bsize);
 	log_debug("%s: f_bfree=%lld\n", __func__, op->statvfs.f_bfree);
 	log_debug("%s: f_blocks=%lld\n", __func__, op->statvfs.f_blocks);
+}
+
+void
+vmmfs_mkdir(void)
+{
+	struct vm_fsop_mkdir *op;
+	char path[256];
+	mode_t mode;
+	int err;
+
+	op = (struct vm_fsop_mkdir *)&vmmfs_op.payload;
+
+	log_debug("%s: requested path: %s", __func__,
+	    op->name);
+
+	/* XXX this is not right */
+	snprintf(path, 256, "/export/vmmfs/%s", op->name);
+
+	mode = op->mode;
+	err = mkdir(path, mode);
+	op->err = err;
+
+	if (err) {
+		log_warn("%s: mkdir failed", __func__);
+	}
 }
 
 void
@@ -2445,6 +2486,9 @@ vmmfs_dispatch(void)
 		break;
 	case VMMFSOP_STATFS:
 		vmmfs_statfs();
+		break;
+	case VMMFSOP_MKDIR:
+		vmmfs_mkdir();
 		break;
 	}
 

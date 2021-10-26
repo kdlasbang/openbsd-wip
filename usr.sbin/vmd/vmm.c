@@ -93,7 +93,7 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	 * recvfd - for disks, interfaces and other fds.
 	 * rpath - vmmfs
 	 */
-	if (pledge("stdio vmm sendfd recvfd proc rpath", NULL) == -1)
+	if (pledge("cpath stdio vmm sendfd recvfd proc rpath", NULL) == -1)
 		fatal("pledge");
 
 	/* Get and terminate all running VMs */

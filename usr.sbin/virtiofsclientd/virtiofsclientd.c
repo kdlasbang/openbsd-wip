@@ -98,8 +98,9 @@ virtiofsclient_send_fuse_msg(struct vm_fsop *buf)
 int
 virtiofsclient_getattr(const char *path, struct stat *statbuf)
 {
-	struct vm_fsop_getattr ga;
+	struct vm_fsop_getattr ga, *retbuf;
 	struct vm_fsop op;
+	int ret;
 
 	printf("%s: called\n", __func__);
 
@@ -108,7 +109,15 @@ virtiofsclient_getattr(const char *path, struct stat *statbuf)
 	strlcpy((char *)&ga.name, path, 256);
 	memcpy(&op.payload, &ga, sizeof(ga));
 
-	return virtiofsclient_send_fuse_msg(&op);
+	ret = virtiofsclient_send_fuse_msg(&op);
+	if (!ret) {
+		retbuf = (struct vm_fsop_getattr *)&op.payload;
+
+		memcpy(statbuf, &retbuf->statbuf, sizeof(*statbuf));
+		return retbuf->err;
+	}
+
+	return ret;
 }
 
 void *
@@ -136,9 +145,26 @@ virtiofsclient_mknod(const char *path, mode_t mode, dev_t rdev)
 int
 virtiofsclient_mkdir(const char *path, mode_t mode)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+	struct vm_fsop_mkdir md, *retbuf;
+	struct vm_fsop op;
+	int ret;
 
-	return -EIO;
+	printf("%s: called\n", __func__);
+
+	op.opcode = VMMFSOP_MKDIR;
+	op.seq = ++curseq;
+	strlcpy((char *)&md.name, path, 256);
+	md.mode = mode;
+	memcpy(&op.payload, &md, sizeof(md));
+
+	ret = virtiofsclient_send_fuse_msg(&op);
+	if (!ret) {
+		retbuf = (struct vm_fsop_mkdir *)&op.payload;
+
+		return retbuf->err;
+	}
+
+	return ret;
 }
 
 int
@@ -264,6 +290,7 @@ virtiofsclient_statfs(const char *path, struct statvfs *buf)
 		printf("%s: f_bsize = %ld\n", __func__, retbuf->statvfs.f_bsize);
 		printf("%s: f_blocks = %lld\n", __func__, retbuf->statvfs.f_blocks);
 		printf("%s: f_bavail = %lld\n", __func__, retbuf->statvfs.f_bavail);
+		return retbuf->err;
 	}
 
 	return ret;

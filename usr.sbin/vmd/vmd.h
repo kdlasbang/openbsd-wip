@@ -93,15 +93,39 @@
 /* Opcodes for passthrough FS */
 #define VMMFSOP_GETATTR 1
 #define VMMFSOP_STATFS 2
+#define VMMFSOP_MKDIR 3
 
 struct vm_fsop_getattr {
+	/* Input */
 	char			name[256];
-	struct stat		stat;
+
+	/* Output */
+	struct stat		statbuf;
+
+	/* Return value (errno) */
+	int			err;
 };
 
 struct vm_fsop_statfs {
+	/* Input */
 	char			name[256];
+
+	/* Output */
 	struct statvfs		statvfs;
+
+	/* Return value (errno) */
+	int			err;
+};
+
+struct vm_fsop_mkdir {
+	/* Input */
+	char			name[256];
+	mode_t			mode;
+
+	/* No output */
+
+	/* Return value (errno) */
+	int			err;
 };
 
 enum imsg_type {
