@@ -16,6 +16,7 @@
  */
 #include <sys/types.h>
 #include <sys/uio.h>
+#define PAGE_SIZE 4096
 #include <machine/vmmvar.h>
 
 #include <stdlib.h>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_vfsops.c,v 1.189 2021/05/01 16:18:29 gnezdo Exp $	*/
+/*	$OpenBSD: ffs_vfsops.c,v 1.191 2021/10/19 06:26:09 semarie Exp $	*/
 /*	$NetBSD: ffs_vfsops.c,v 1.19 1996/02/09 22:22:26 christos Exp $	*/
 
 /*
@@ -1165,9 +1165,6 @@ ffs_sync_vnode(struct vnode *vp, void *arg)
 
 	ip = VTOI(vp);
 
-	if (vp->v_inflight && !(vp->v_type == VCHR || vp->v_type == VBLK))
-		fsa->inflight = MIN(fsa->inflight+1, 65536);
-
 	/*
 	 * If unmounting or converting rw to ro, then stop deferring
 	 * timestamp writes.
@@ -1187,7 +1184,7 @@ ffs_sync_vnode(struct vnode *vp, void *arg)
 	}
 
 	if (vget(vp, LK_EXCLUSIVE | LK_NOWAIT)) {
-		nlink0 = 1;		/* potentially.. */
+		fsa->inflight = MIN(fsa->inflight+1, 65536);
 		goto end;
 	}
 
@@ -1327,9 +1324,6 @@ retry:
 		return (error);
 	}
 
-#ifdef VFSLCKDEBUG
-	vp->v_flag |= VLOCKSWORK;
-#endif
 	ip = pool_get(&ffs_ino_pool, PR_WAITOK|PR_ZERO);
 	rrw_init_flags(&ip->i_lock, "inode", RWL_DUPOK | RWL_IS_VNODE);
 	ip->i_ump = ump;

@@ -30,6 +30,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#define PAGE_SIZE 4096
 #include "vmd.h"
 #include "vioscsi.h"
 #include "virtio.h"

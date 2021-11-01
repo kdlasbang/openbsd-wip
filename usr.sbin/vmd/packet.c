@@ -56,6 +56,7 @@
 #include <string.h>
 
 #include "dhcp.h"
+#define PAGE_SIZE 4096
 #include "vmd.h"
 
 u_int32_t	checksum(unsigned char *, u_int32_t, u_int32_t);

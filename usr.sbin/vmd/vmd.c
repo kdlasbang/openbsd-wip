@@ -935,7 +935,7 @@ vmd_configure(void)
 	 * flock - locking disk files
 	 */
 	if (pledge("stdio rpath wpath proc tty recvfd sendfd getpw"
-	    " chown fattr flock", NULL) == -1)
+	    " cpath chown fattr flock", NULL) == -1)
 		fatal("pledge");
 
 	if (parse_config(env->vmd_conffile) == -1) {

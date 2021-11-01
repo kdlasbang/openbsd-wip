@@ -266,6 +266,10 @@ struct vmmci_dev {
 	uint8_t pci_id;
 };
 
+struct vmmfs_dev {
+	paddr_t addr;
+};
+
 struct ioinfo {
 	struct virtio_backing *file;
 	uint8_t *buf;

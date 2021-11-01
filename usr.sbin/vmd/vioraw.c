@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#define PAGE_SIZE 4096
 #include "virtio.h"
 
 static ssize_t

@@ -21,6 +21,7 @@
 #include <sys/kernel.h>
 #include <sys/timeout.h>
 #include <machine/bus.h>
+#include <machine/vmmvar.h>
 #include <sys/device.h>
 #include <sys/pool.h>
 #include <sys/stat.h>
@@ -52,6 +53,8 @@ struct viofs_softc {
 int	viofs_match(struct device *, void *, void *);
 void	viofs_attach(struct device *, struct device *, void *);
 int	viofs_vq_done(struct virtqueue *);
+int	viofs_enq(struct vm_fusebuf *);
+int	viofs_deq(struct vm_fusebuf *);
 
 struct cfattach viofs_ca = {
 	sizeof(struct viofs_softc),
@@ -209,3 +212,15 @@ viofs_alloc_reqs(struct viofs_softc *sc)
 		goto err_dmamem_alloc;
 	}
 */
+
+int
+viofs_enq(struct vm_fusebuf *buf)
+{
+	return 0;
+}
+
+int
+viofs_deq(struct vm_fusebuf *buf)
+{
+	return 0;
+}

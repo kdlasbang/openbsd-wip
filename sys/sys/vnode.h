@@ -1,4 +1,4 @@
-/*	$OpenBSD: vnode.h,v 1.158 2021/10/02 08:51:41 semarie Exp $	*/
+/*	$OpenBSD: vnode.h,v 1.161 2021/10/19 06:26:09 semarie Exp $	*/
 /*	$NetBSD: vnode.h,v 1.38 1996/02/29 20:59:05 cgd Exp $	*/
 
 /*
@@ -107,7 +107,6 @@ struct vnode {
 	u_int   v_bioflag;
 	u_int   v_holdcnt;			/* buffer references */
 	u_int   v_id;				/* capability identifier */
-	u_int	v_inflight;
 	struct	mount *v_mount;			/* ptr to vfs we are in */
 	TAILQ_ENTRY(vnode) v_freelist;		/* vnode freelist */
 	TAILQ_ENTRY(vnode) v_mntvnodes;		/* vnodes for mount point */
@@ -147,8 +146,7 @@ struct vnode {
 #define	VCLONED		0x0400	/* vnode was cloned */
 #define	VALIASED	0x0800	/* vnode has an alias */
 #define	VLARVAL		0x1000	/* vnode data not yet set up by higher level */
-#define	VLOCKSWORK	0x4000	/* FS supports locking discipline */
-#define	VCLONE		0x8000	/* vnode is a clone */
+#define	VCLONE		0x4000	/* vnode is a clone */
 
 /*
  * (v_bioflag) Flags that may be manipulated by interrupt handlers
@@ -631,9 +629,6 @@ int	vop_generic_abortop(void *);
 int	vop_generic_badop(void *);
 int	vop_generic_bmap(void *);
 int	vop_generic_bwrite(void *);
-int	vop_generic_islocked(void *);
-int	vop_generic_lock(void *);
-int	vop_generic_unlock(void *);
 int	vop_generic_revoke(void *);
 int	vop_generic_kqfilter(void *);
 int	vop_generic_lookup(void *);

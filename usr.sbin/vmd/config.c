@@ -37,6 +37,8 @@
 #include <imsg.h>
 
 #include "proc.h"
+
+#define PAGE_SIZE 4096
 #include "vmd.h"
 
 /* Supported bridge types */

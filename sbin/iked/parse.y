@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.132 2021/09/18 16:45:52 deraadt Exp $	*/
+/*	$OpenBSD: parse.y,v 1.134 2021/10/15 15:01:27 naddy Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -551,7 +551,7 @@ user		: USER STRING STRING		{
 			if (create_user($2, $3) == -1)
 				YYERROR;
 			free($2);
-			free($3);
+			freezero($3, strlen($3));
 		}
 		;
 
@@ -1510,10 +1510,10 @@ findeol(void)
 int
 yylex(void)
 {
-	unsigned char	 buf[8096];
-	unsigned char	*p, *val;
-	int		 quotec, next, c;
-	int		 token;
+	char	 buf[8096];
+	char	*p, *val;
+	int	 quotec, next, c;
+	int	 token;
 
 top:
 	p = buf;
@@ -1549,7 +1549,7 @@ top:
 		p = val + strlen(val) - 1;
 		lungetc(DONE_EXPAND);
 		while (p >= val) {
-			lungetc(*p);
+			lungetc((unsigned char)*p);
 			p--;
 		}
 		lungetc(START_EXPAND);
@@ -1625,8 +1625,8 @@ top:
 		} else {
 nodigits:
 			while (p > buf + 1)
-				lungetc(*--p);
-			c = *--p;
+				lungetc((unsigned char)*--p);
+			c = (unsigned char)*--p;
 			if (c == '-')
 				return (c);
 		}
@@ -3078,6 +3078,8 @@ create_user(const char *user, const char *pass)
 	config_setuser(env, &usr, PROC_IKEV2);
 
 	rules++;
+
+	explicit_bzero(&usr, sizeof usr);
 	return (0);
 }
 

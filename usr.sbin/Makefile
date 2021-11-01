@@ -18,7 +18,8 @@ SUBDIR=	ac accton acme-client acpidump adduser amd apm apmd arp \
 	sa sasyncd sensorsd slaacctl slowcgi smtpd \
 	snmpd spamdb switchctl switchd syslogc syslogd sysmerge \
 	syspatch sysupgrade tcpdrop tcpdump tftp-proxy tftpd tokenadm \
-	tokeninit traceroute trpt unbound unwindctl usbdevs user vmd vmctl \
+	tokeninit traceroute trpt unbound unwindctl usbdevs user \
+	virtiofscliend vmd vmctl \
 	vipw watchdogd wsconscfg wsfontload wsmoused zdump zic
 
 .if (${YP:L} == "yes")

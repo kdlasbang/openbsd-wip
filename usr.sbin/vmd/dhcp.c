@@ -32,6 +32,7 @@
 #include <stddef.h>
 
 #include "dhcp.h"
+#define PAGE_SIZE 4096
 #include "virtio.h"
 #include "vmd.h"
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mfs_vnops.c,v 1.56 2021/10/02 08:51:41 semarie Exp $	*/
+/*	$OpenBSD: mfs_vnops.c,v 1.58 2021/10/15 06:30:06 semarie Exp $	*/
 /*	$NetBSD: mfs_vnops.c,v 1.8 1996/03/17 02:16:32 christos Exp $	*/
 
 /*
@@ -74,12 +74,12 @@ const struct vops mfs_vops = {
         .vop_abortop    = vop_generic_badop,
         .vop_inactive   = mfs_inactive,
         .vop_reclaim    = mfs_reclaim,
-        .vop_lock       = vop_generic_lock,
-        .vop_unlock     = vop_generic_unlock,
+        .vop_lock       = nullop,
+        .vop_unlock     = nullop,
+        .vop_islocked   = nullop,
         .vop_bmap       = vop_generic_bmap,
         .vop_strategy   = mfs_strategy,
         .vop_print      = mfs_print,
-        .vop_islocked   = vop_generic_islocked,
         .vop_pathconf   = vop_generic_badop,
         .vop_advlock    = vop_generic_badop,
         .vop_bwrite     = vop_generic_bwrite
@@ -125,13 +125,12 @@ mfs_strategy(void *v)
 	struct buf *bp = ap->a_bp;
 	struct mfsnode *mfsp;
 	struct vnode *vp;
-	struct proc *p = curproc;
 
 	if (!vfinddev(bp->b_dev, VBLK, &vp) || vp->v_usecount == 0)
 		panic("mfs_strategy: bad dev");
 
 	mfsp = VTOMFS(vp);
-	if (p != NULL && mfsp->mfs_tid == p->p_tid) {
+	if (mfsp->mfs_tid == curproc->p_tid) {
 		mfs_doio(mfsp, bp);
 	} else {
 		bufq_queue(&mfsp->mfs_bufq, bp);

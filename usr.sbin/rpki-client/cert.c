@@ -1,5 +1,6 @@
-/*	$OpenBSD: cert.c,v 1.32 2021/09/09 14:15:49 claudio Exp $ */
+/*	$OpenBSD: cert.c,v 1.39 2021/10/15 22:30:33 job Exp $ */
 /*
+ * Copyright (c) 2021 Job Snijders <job@openbsd.org>
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -978,6 +979,7 @@ static struct cert *
 cert_parse_inner(X509 **xp, const char *fn, int ta)
 {
 	int		 rc = 0, extsz, c;
+	int		 sia_present = 0;
 	size_t		 i;
 	X509		*x = NULL;
 	X509_EXTENSION	*ext = NULL;
@@ -1029,6 +1031,7 @@ cert_parse_inner(X509 **xp, const char *fn, int ta)
 			c = sbgp_assysnum(&p, ext);
 			break;
 		case NID_sinfo_access:
+			sia_present = 1;
 			c = sbgp_sia(&p, ext);
 			break;
 		case NID_crl_distribution_points:
@@ -1039,6 +1042,8 @@ cert_parse_inner(X509 **xp, const char *fn, int ta)
 		case NID_authority_key_identifier:
 			break;
 		case NID_subject_key_identifier:
+			break;
+		case NID_ext_key_usage:
 			break;
 		default:
 			/* {
@@ -1059,12 +1064,44 @@ cert_parse_inner(X509 **xp, const char *fn, int ta)
 		p.res->aia = x509_get_aia(x, p.fn);
 		p.res->crl = x509_get_crl(x, p.fn);
 	}
+	p.res->expires = x509_get_expire(x, p.fn);
+	p.res->purpose = x509_get_purpose(x, p.fn);
 
 	/* Validation on required fields. */
 
+	switch (p.res->purpose) {
+	case CERT_PURPOSE_CA:
+		if (p.res->mft == NULL) {
+			warnx("%s: RFC 6487 section 4.8.8: missing SIA", p.fn);
+			goto out;
+		}
+		if (p.res->asz == 0 && p.res->ipsz == 0) {
+			warnx("%s: missing IP or AS resources", p.fn);
+			goto out;
+		}
+		break;
+	case CERT_PURPOSE_BGPSEC_ROUTER:
+		p.res->pubkey = x509_get_pubkey(x, p.fn);
+		if (p.res->pubkey == NULL) {
+			warnx("%s: x509_get_pubkey failed", p.fn);
+			goto out;
+		}
+		if (p.res->ipsz > 0) {
+			warnx("%s: unexpected IP resources in BGPsec cert", p.fn);
+			goto out;
+		}
+		if (sia_present) {
+			warnx("%s: unexpected SIA extension in BGPsec cert", p.fn);
+			goto out;
+		}
+		break;
+	default:
+		warnx("%s: x509_get_purpose failed in %s", p.fn, __func__);
+		goto out;
+	}
+
 	if (p.res->ski == NULL) {
-		warnx("%s: RFC 6487 section 8.4.2: "
-		    "missing SKI", p.fn);
+		warnx("%s: RFC 6487 section 8.4.2: missing SKI", p.fn);
 		goto out;
 	}
 
@@ -1100,19 +1137,8 @@ cert_parse_inner(X509 **xp, const char *fn, int ta)
 		goto out;
 	}
 
-	if (p.res->asz == 0 && p.res->ipsz == 0) {
-		warnx("%s: RFC 6487 section 4.8.10 and 4.8.11: "
-		    "missing IP or AS resources", p.fn);
-		goto out;
-	}
-
-	if (p.res->mft == NULL) {
-		warnx("%s: RFC 6487 section 4.8.8: "
-		    "missing SIA", p.fn);
-		goto out;
-	}
 	if (X509_up_ref(x) == 0)
-		errx(1, "king bula");
+		errx(1, "%s: X509_up_ref failed", __func__);
 
 	p.res->x509 = x;
 
@@ -1190,6 +1216,8 @@ cert_free(struct cert *p)
 	free(p->aia);
 	free(p->aki);
 	free(p->ski);
+	free(p->tal);
+	free(p->pubkey);
 	X509_free(p->x509);
 	free(p);
 }
@@ -1232,6 +1260,8 @@ cert_buffer(struct ibuf *b, const struct cert *p)
 	size_t	 i;
 
 	io_simple_buffer(b, &p->valid, sizeof(int));
+	io_simple_buffer(b, &p->expires, sizeof(time_t));
+	io_simple_buffer(b, &p->purpose, sizeof(enum cert_purpose));
 	io_simple_buffer(b, &p->ipsz, sizeof(size_t));
 	for (i = 0; i < p->ipsz; i++)
 		cert_ip_buffer(b, &p->ips[i]);
@@ -1239,7 +1269,6 @@ cert_buffer(struct ibuf *b, const struct cert *p)
 	io_simple_buffer(b, &p->asz, sizeof(size_t));
 	for (i = 0; i < p->asz; i++)
 		cert_as_buffer(b, &p->as[i]);
-
 	io_str_buffer(b, p->mft);
 	io_str_buffer(b, p->notify);
 	io_str_buffer(b, p->repo);
@@ -1247,6 +1276,8 @@ cert_buffer(struct ibuf *b, const struct cert *p)
 	io_str_buffer(b, p->aia);
 	io_str_buffer(b, p->aki);
 	io_str_buffer(b, p->ski);
+	io_str_buffer(b, p->tal);
+	io_str_buffer(b, p->pubkey);
 }
 
 static void
@@ -1294,6 +1325,8 @@ cert_read(int fd)
 		err(1, NULL);
 
 	io_simple_read(fd, &p->valid, sizeof(int));
+	io_simple_read(fd, &p->expires, sizeof(time_t));
+	io_simple_read(fd, &p->purpose, sizeof(enum cert_purpose));
 	io_simple_read(fd, &p->ipsz, sizeof(size_t));
 	p->ips = calloc(p->ipsz, sizeof(struct cert_ip));
 	if (p->ips == NULL)
@@ -1309,7 +1342,7 @@ cert_read(int fd)
 		cert_as_read(fd, &p->as[i]);
 
 	io_str_read(fd, &p->mft);
-	assert(p->mft);
+	assert(p->mft != NULL || p->purpose == CERT_PURPOSE_BGPSEC_ROUTER);
 	io_str_read(fd, &p->notify);
 	io_str_read(fd, &p->repo);
 	io_str_read(fd, &p->crl);
@@ -1317,6 +1350,8 @@ cert_read(int fd)
 	io_str_read(fd, &p->aki);
 	io_str_read(fd, &p->ski);
 	assert(p->ski);
+	io_str_read(fd, &p->tal);
+	io_str_read(fd, &p->pubkey);
 
 	return p;
 }
@@ -1341,3 +1376,84 @@ authcmp(struct auth *a, struct auth *b)
 }
 
 RB_GENERATE(auth_tree, auth, entry, authcmp);
+
+static void
+insert_brk(struct brk_tree *tree, struct cert *cert, int asid)
+{
+	struct brk	*b, *found;
+
+	if ((b = calloc(1, sizeof(*b))) == NULL)
+		err(1, NULL);
+
+	b->asid = asid;
+	b->expires = cert->expires;
+	if ((b->tal = strdup(cert->tal)) == NULL)
+		err(1, NULL);
+	if ((b->ski = strdup(cert->ski)) == NULL)
+		err(1, NULL);
+	if ((b->pubkey = strdup(cert->pubkey)) == NULL)
+		err(1, NULL);
+
+	/*
+	 * Check if a similar BRK already exists in the tree. If the found BRK
+	 * expires sooner, update it to this BRK's later expiry moment.
+	 */
+	if ((found = RB_INSERT(brk_tree, tree, b)) != NULL) {
+		if (found->expires < b->expires) {
+			found->expires = b->expires;
+			free(found->tal);
+			found->tal = b->tal;
+			b->tal = NULL;
+		}
+		free(b->ski);
+		free(b->pubkey);
+		free(b->tal);
+		free(b);
+	}
+}
+
+/*
+ * Add each BGPsec Router Key into the BRK tree.
+ */
+void
+cert_insert_brks(struct brk_tree *tree, struct cert *cert)
+{
+	size_t		 i, asid;
+
+	for (i = 0; i < cert->asz; i++) {
+		switch (cert->as[i].type) {
+		case CERT_AS_ID:
+			insert_brk(tree, cert, cert->as[i].id);
+			break;
+		case CERT_AS_RANGE:
+			for (asid = cert->as[i].range.min;
+			    asid <= cert->as[i].range.max; asid++)
+				insert_brk(tree, cert, asid);
+			break;
+		default:
+			warnx("invalid AS identifier type");
+			continue;
+		}
+	}
+}
+
+static inline int
+brkcmp(struct brk *a, struct brk *b)
+{
+	int rv;
+
+	if (a->asid > b->asid)
+		return 1;
+	if (a->asid < b->asid)
+		return -1;
+
+	rv = strcmp(a->ski, b->ski);
+	if (rv > 0)
+		return 1;
+	if (rv < 0)
+		return -1;
+
+	return strcmp(a->pubkey, b->pubkey);
+}
+
+RB_GENERATE(brk_tree, brk, entry, brkcmp);

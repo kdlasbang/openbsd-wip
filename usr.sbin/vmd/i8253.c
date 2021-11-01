@@ -20,6 +20,7 @@
 
 #include <dev/ic/i8253reg.h>
 
+#define PAGE_SIZE 4096
 #include <machine/vmmvar.h>
 
 #include <event.h>

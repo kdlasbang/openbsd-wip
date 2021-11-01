@@ -31,6 +31,10 @@
 #include <stdio.h>
 #include <pthread.h>
 
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/statvfs.h>
+
 #include "proc.h"
 
 #ifndef VMD_H
@@ -85,6 +89,44 @@
 
 /* Unique local address for IPv6 */
 #define VMD_ULA_PREFIX		"fd00::/8"
+
+/* Opcodes for passthrough FS */
+#define VMMFSOP_GETATTR 1
+#define VMMFSOP_STATFS 2
+#define VMMFSOP_MKDIR 3
+
+struct vm_fsop_getattr {
+	/* Input */
+	char			name[256];
+
+	/* Output */
+	struct stat		statbuf;
+
+	/* Return value (errno) */
+	int			err;
+};
+
+struct vm_fsop_statfs {
+	/* Input */
+	char			name[256];
+
+	/* Output */
+	struct statvfs		statvfs;
+
+	/* Return value (errno) */
+	int			err;
+};
+
+struct vm_fsop_mkdir {
+	/* Input */
+	char			name[256];
+	mode_t			mode;
+
+	/* No output */
+
+	/* Return value (errno) */
+	int			err;
+};
 
 enum imsg_type {
 	IMSG_VMDOP_START_VM_REQUEST = IMSG_PROC_MAX,

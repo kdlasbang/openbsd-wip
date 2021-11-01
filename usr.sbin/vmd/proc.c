@@ -546,6 +546,7 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	else
 		pw = ps->ps_pw;
 
+#if 0
 	/* Change root directory */
 	if (p->p_chroot != NULL)
 		root = p->p_chroot;
@@ -556,6 +557,7 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 		fatal("%s: chroot", __func__);
 	if (chdir("/") == -1)
 		fatal("%s: chdir(\"/\")", __func__);
+#endif
 
 	privsep_process = p->p_id;
 

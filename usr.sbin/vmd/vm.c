@@ -315,7 +315,7 @@ start_vm(struct vmd_vm *vm, int fd)
 	 * recvfd - for send/recv.
 	 * vmm - for the vmm ioctls and operations.
 	 */
-	if (pledge("stdio vmm recvfd", NULL) == -1)
+	if (pledge("cpath stdio vmm recvfd rpath", NULL) == -1)
 		fatal("pledge");
 
 	if (vm->vm_state & VM_STATE_RECEIVED) {
