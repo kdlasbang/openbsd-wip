@@ -135,11 +135,11 @@ struct vm_fsop_create {
   char    name[256];
   mode_t  mode;
 
-  // struct fuse_file_info fi;
+  //struct fuse_file_info fi;
 
   /* Return value (errno) */
   int     err;
-};
+}
 
 enum imsg_type {
 	IMSG_VMDOP_START_VM_REQUEST = IMSG_PROC_MAX,

@@ -43,7 +43,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mount.h>
-
+#include <fcntl.h>
 #include "atomicio.h"
 #include "pci.h"
 #include "vioscsi.h"
@@ -2467,6 +2467,31 @@ vmmfs_mkdir(void)
 }
 
 void
+vmmfs_create(void)
+{
+  struct vm_fsop_create *op;
+  
+  char path[256];
+  mode_t mode;
+  int err;
+
+  op = (struct vm_fsop_create *)&vmmfs_op.payload;
+
+  log_debug("%s: requested path: %s", __func__, op->name);
+
+  snprintf(path, 256, "/export/vmmfs/%s", op->name);
+
+  mode = op->mode;
+  
+  
+  err = open(path, O_CREAT, mode);
+  op->err = err;
+  if (err) {
+    log_warn("%s: create failed", __func__);
+  }
+}
+
+void
 vmmfs_finish_op(void)
 {
 	log_debug("%s: finishing sequence number %lld", __func__,
@@ -2490,6 +2515,9 @@ vmmfs_dispatch(void)
 	case VMMFSOP_MKDIR:
 		vmmfs_mkdir();
 		break;
+	case VMMFSOP_CREATE:
+	       vmmfs_create();
+	       break;
 	}
 
 	vmmfs_finish_op();
