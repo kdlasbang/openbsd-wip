@@ -34,6 +34,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/statvfs.h>
+#include <fuse.h>
+#include <fcntl.h>
+
+
 
 #include "proc.h"
 
@@ -94,6 +98,14 @@
 #define VMMFSOP_GETATTR 1
 #define VMMFSOP_STATFS 2
 #define VMMFSOP_MKDIR 3
+#define VMMFSOP_RMDIR 200
+#define VMMFSOP_CREATE 201
+#define VMMFSOP_MKNOD 202
+#define VMMFSOP_RENAME 203
+#define VMMFSOP_TRUNCATE 204
+#define VMMFSOP_OPEN 205
+
+
 
 struct vm_fsop_getattr {
 	/* Input */
@@ -108,7 +120,7 @@ struct vm_fsop_getattr {
 
 struct vm_fsop_statfs {
 	/* Input */
-	char			name[256];
+	char			    name[256];
 
 	/* Output */
 	struct statvfs		statvfs;
@@ -126,6 +138,73 @@ struct vm_fsop_mkdir {
 
 	/* Return value (errno) */
 	int			err;
+};
+
+struct vm_fsop_rmdir {
+    /* Input */
+    char            name[256];
+
+    /* No output */
+
+    /* Return value (errno) */
+    int         err;
+};
+
+
+struct vm_fsop_create {
+    /* Input */
+    char                    name[256];
+    mode_t                  mode;
+    /* No output */
+    struct fuse_file_info   fi;
+
+    /* Return value (errno) */
+    int         err;
+};
+
+
+struct vm_fsop_mknod {
+    /* Input */
+    char                    name[256];
+    mode_t                  mode;
+    dev_t                   dev; 
+    /* No output */
+
+    /* Return value (errno) */
+    int         err;
+};
+
+struct vm_fsop_rename {
+    /* Input */
+    char                    old_path[256];
+    char                    new_path[256];
+
+    /* No output */
+
+    /* Return value (errno) */
+    int         err;
+};
+
+struct vm_fsop_truncate {
+    /* Input */
+    char                    name[256];
+    off_t                   size;
+    /* No output */
+
+    /* Return value (errno) */
+    int         err;
+};
+
+
+struct vm_fsop_open {
+    /* Input */
+    char                    name[256];
+
+    /* Output */
+    struct fuse_file_info   fi;
+
+    /* Return value (errno) */
+    int                     err;
 };
 
 enum imsg_type {
