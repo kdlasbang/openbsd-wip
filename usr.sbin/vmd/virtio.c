@@ -18,6 +18,7 @@
 
 #include <sys/param.h>	/* PAGE_SIZE */
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 #include <machine/vmmvar.h>
 #include <dev/pci/pcireg.h>
@@ -39,6 +40,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#include <fcntl.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -2505,11 +2508,11 @@ vmmfs_create(void)
     /* XXX this is not right */
     snprintf(path, 256, "/export/vmmfs/%s", op->name);
     mode = op->mode;
-    err = open(path, O_CREAT, mode);
+    err = open(path, op->fi.flags, mode);
     op->err = err;
 
     if (err) {
-        log_warn("%s: stat returned error\n", __func__);
+        log_warn("%s: vmmfs_create returned error\n", __func__);
     }
 }
 
@@ -2606,13 +2609,14 @@ vmmfs_open(void)
     log_debug("%s: requested path: %s", __func__,
         op->name);
 
+    log_debug("vmmfs_open() op->fi.flag=%d", op->fi.flags);
+
     /* XXX this is not right */
     snprintf(path, 256, "/export/vmmfs/%s", op->name);
     err = open(path, op->fi.flags);
     op->err = err;
-
     if (err) {
-        log_warn("%s: vmmfs_open returned error\n", __func__);
+        log_warn("%s: open() returned error code=%d\n", __func__, err);
     }
 }
 

@@ -134,6 +134,10 @@ virtiofsclient_readlink(const char *path, char *buf, size_t size)
 	return -EIO;
 }
 
+
+
+
+/*Doesn't work properly*/
 int
 virtiofsclient_mknod(const char *path, mode_t mode, dev_t rdev)
 {
@@ -193,6 +197,8 @@ virtiofsclient_unlink(const char *path)
 	return -EIO;
 }
 
+
+/*Work properly*/
 int
 virtiofsclient_rmdir(const char *path)
 {
@@ -225,6 +231,9 @@ virtiofsclient_symlink(const char *from, const char *to)
 	return -EIO;
 }
 
+
+
+/*Work properly*/
 int
 virtiofsclient_rename(const char *from, const char *to)
 {
@@ -275,6 +284,9 @@ virtiofsclient_chown(const char *path, uid_t uid, gid_t gid)
 	return -EIO;
 }
 
+
+
+/*Doesn't work properly*/
 int
 virtiofsclient_truncate(const char *path, off_t size)
 {
@@ -307,6 +319,8 @@ virtiofsclient_utime(const char *file, struct utimbuf *timep)
 	return -EIO;
 }
 
+
+/*Doesn't work properly*/
 int
 virtiofsclient_open(const char *path, struct fuse_file_info *fi)
 {
@@ -315,10 +329,13 @@ virtiofsclient_open(const char *path, struct fuse_file_info *fi)
     int ret;
 
     printf("%s: called\n", __func__);
-
+    printf("virtiofsclient_open() fi->falgs=%d\n", fi->flags);
+	
     op.opcode = VMMFSOP_OPEN;
     op.seq = ++curseq;
     strlcpy((char *)&on.name, path, 256);
+    on.fi = *fi;
+    printf("virtiofsclient_open() on->fi.falgs=%d\n", on.fi.flags);
     memcpy(&op.payload, &on, sizeof(on));
 
     ret = virtiofsclient_send_fuse_msg(&op);
@@ -450,6 +467,9 @@ virtiofsclient_access(const char *path, int amode)
 	return -EIO;
 }
 
+
+
+/*Doesn't work properly*/
 int
 virtiofsclient_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
@@ -477,6 +497,8 @@ virtiofsclient_create(const char *path, mode_t mode, struct fuse_file_info *fi)
     return ret;
 
 }
+
+
 
 int
 virtiofsclient_ftruncate(const char *path, off_t offset,
