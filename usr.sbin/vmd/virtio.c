@@ -18,6 +18,7 @@
 
 #include <sys/param.h>	/* PAGE_SIZE */
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 #include <machine/vmmvar.h>
 #include <dev/pci/pcireg.h>
@@ -39,6 +40,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#include <fcntl.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -2467,6 +2470,159 @@ vmmfs_mkdir(void)
 }
 
 void
+vmmfs_rmdir(void)
+{
+    struct vm_fsop_rmdir *op;
+    char path[256];
+    int err;
+
+    op = (struct vm_fsop_rmdir *)&vmmfs_op.payload;
+
+    log_debug("%s: requested path: %s", __func__,
+        op->name);
+
+    /* XXX this is not right */
+    snprintf(path, 256, "/export/vmmfs/%s", op->name);
+
+    err = rmdir(path);
+    op->err = err;
+
+    if (err) {
+        log_warn("%s: rmdir failed", __func__);
+    }
+}
+
+void
+vmmfs_create(void)
+{
+    struct vm_fsop_create *op;
+    char path[256];
+    mode_t mode;
+    int err;
+
+    op = (struct vm_fsop_create *)&vmmfs_op.payload;
+
+    log_debug("%s: requested path: %s", __func__,
+        op->name);
+
+    /* XXX this is not right */
+    snprintf(path, 256, "/export/vmmfs/%s", op->name);
+    mode = op->mode;
+    err = open(path, op->fi.flags, mode);
+    op->err = err;
+
+    if (err) {
+        log_warn("%s: vmmfs_create returned error\n", __func__);
+    }
+}
+
+
+void
+vmmfs_mknod(void)
+{
+    struct vm_fsop_mknod *op;
+    char path[256];
+    mode_t mode;
+    dev_t dev;
+    int err;
+
+    op = (struct vm_fsop_mknod *)&vmmfs_op.payload;
+
+    log_debug("%s: requested path: %s", __func__,
+        op->name);
+
+    /* XXX this is not right */
+    snprintf(path, 256, "/export/vmmfs/%s", op->name);
+
+    mode = op->mode;
+    dev = op->dev;
+    err = mknod(path, mode, dev);
+    op->err = err;
+
+    if (err) {
+        log_warn("%s: stat returned error\n", __func__);
+    }
+}
+
+
+void
+vmmfs_rename(void)
+{
+    struct vm_fsop_rename *op;
+    char old_path[256];
+    char new_path[256];
+    int err;
+
+    op = (struct vm_fsop_rename *)&vmmfs_op.payload;
+
+    log_debug("%s: requested old_path: %s", __func__,
+        op->old_path);
+    log_debug("%s: requested new_path: %s", __func__,
+        op->new_path);
+
+    /* XXX this is not right */
+    snprintf(old_path, 256, "/export/vmmfs/%s", op->old_path);
+    snprintf(new_path, 256, "/export/vmmfs/%s", op->new_path);
+
+    err = rename(old_path, new_path);
+    op->err = err;
+
+    if (err) {
+        log_warn("%s: stat returned error\n", __func__);
+    }
+}
+
+void
+vmmfs_truncate(void)
+{
+    struct vm_fsop_truncate *op;
+    char path[256];
+    off_t size;
+    int err;
+
+    op = (struct vm_fsop_truncate *)&vmmfs_op.payload;
+
+    log_debug("%s: requested path: %s", __func__,
+        op->name);
+
+    /* XXX this is not right */
+    snprintf(path, 256, "/export/vmmfs/%s", op->name);
+    size = op->size;
+    err = truncate(path, size);
+    op->err = err;
+    
+    if (err) {
+        log_warn("%s: truncate returned error\n", __func__);
+    }
+}
+
+
+void
+vmmfs_open(void)
+{
+    struct vm_fsop_open *op;
+    char path[256];
+    int err;
+
+    op = (struct vm_fsop_open *)&vmmfs_op.payload;
+
+    log_debug("%s: requested path: %s", __func__,
+        op->name);
+
+    log_debug("vmmfs_open() op->fi.flag=%d", op->fi.flags);
+
+    /* XXX this is not right */
+    snprintf(path, 256, "/export/vmmfs/%s", op->name);
+    err = open(path, op->fi.flags);
+    op->err = err;
+    if (err) {
+        log_warn("%s: open() returned error code=%d\n", __func__, err);
+    }
+}
+
+
+
+void
 vmmfs_finish_op(void)
 {
 	log_debug("%s: finishing sequence number %lld", __func__,
@@ -2481,17 +2637,37 @@ vmmfs_dispatch(void)
 	log_debug("%s: opcode %d", __func__, vmmfs_op.opcode);
 
 	switch (vmmfs_op.opcode) {
-	case VMMFSOP_GETATTR:
-		vmmfs_getattr();
-		break;
-	case VMMFSOP_STATFS:
-		vmmfs_statfs();
-		break;
-	case VMMFSOP_MKDIR:
-		vmmfs_mkdir();
-		break;
-	}
+	    case VMMFSOP_GETATTR:
+		    vmmfs_getattr();
+		    break;
+	    case VMMFSOP_STATFS:
+		    vmmfs_statfs();
+		    break;
+    	case VMMFSOP_MKDIR:
+	    	vmmfs_mkdir();
+	    	break;
 
+        case VMMFSOP_RMDIR:
+            vmmfs_rmdir();
+
+        case VMMFSOP_CREATE:
+            vmmfs_create();
+
+        case VMMFSOP_MKNOD:
+            vmmfs_mknod(); 
+            break;
+
+        case VMMFSOP_RENAME:
+            vmmfs_rename();
+            break;
+
+        case VMMFSOP_TRUNCATE:
+            vmmfs_truncate();
+            break;
+        case VMMFSOP_OPEN:
+            vmmfs_open();
+            break;
+	}
 	vmmfs_finish_op();
 	log_debug("%s: exits\n", __func__);
 }

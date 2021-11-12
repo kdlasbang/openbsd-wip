@@ -934,7 +934,7 @@ vmd_configure(void)
 	 * chown, fattr - change tty ownership
 	 * flock - locking disk files
 	 */
-	if (pledge("stdio rpath wpath proc tty recvfd sendfd getpw"
+	if (pledge("stdio rpath wpath dpath proc tty recvfd sendfd getpw"
 	    " cpath chown fattr flock", NULL) == -1)
 		fatal("pledge");
 
