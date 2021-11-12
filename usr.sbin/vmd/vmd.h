@@ -107,6 +107,8 @@
 
 
 
+#define VMMFSOP_LINK 444
+
 struct vm_fsop_getattr {
 	/* Input */
 	char			name[256];
@@ -205,6 +207,15 @@ struct vm_fsop_open {
 
     /* Return value (errno) */
     int                     err;
+}
+struct vm_fsop_link {
+	/* input */
+	char 			from[256];
+	char 			to[256];
+	/* No output */
+
+	/* Return value (errno) */
+	int err;
 };
 
 enum imsg_type {

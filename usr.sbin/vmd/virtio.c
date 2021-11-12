@@ -2621,6 +2621,25 @@ vmmfs_open(void)
 }
 
 
+void
+vmmfs_link(void)
+{
+	struct vm_fsop_link *op;
+	char from[256];
+	char to[256];
+	int err;
+	
+	op = (struct vm_fsop_link *)&vmmfs_op.payload;
+
+	log_debug("%s: requested path from=%s to=%s", __func__,
+	    op->from,op->to);
+	err = link(from, to);
+	op->err = err;
+
+	if (err) {
+		log_warn("%s: link failed", __func__);
+	}
+}
 
 void
 vmmfs_finish_op(void)
@@ -2667,6 +2686,11 @@ vmmfs_dispatch(void)
         case VMMFSOP_OPEN:
             vmmfs_open();
             break;
+
+		case VMMFSOP_LINK:
+			vmmfs_link();
+			break;
+	 
 	}
 	vmmfs_finish_op();
 	log_debug("%s: exits\n", __func__);
