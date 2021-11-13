@@ -386,26 +386,10 @@ virtiofsclient_access(const char *path, int amode)
 int
 virtiofsclient_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
+        warnx("unimplemented function %s for path %s", __func__, path);
 
-      struct vm_fsop_create cr, *retbuf;
-      struct vm_fsop op;
-      int ret;
 
-      op.opcode = VMMFSOP_CREATE;
-      op.seq = ++curseq;
-      strlcpy((char *)&cr.name, path, 256);
-      cr.mode = mode;
-      
-      memcpy(&op.payload, &cr, sizeof(cr));
-
-      ret = virtiofsclient_send_fuse_msg(&op);
-
-      if(!ret) {
-	retbuf = (struct vm_fsop_create*)&op.payload;
-	return retbuf->err;
-      }
-      
-      return ret;;
+	return -EIO;      
 }
 
 int

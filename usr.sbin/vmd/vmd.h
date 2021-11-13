@@ -95,8 +95,8 @@
 #define VMMFSOP_STATFS 2
 #define VMMFSOP_MKDIR 3
 
-#define VMMFSOP_CREATE 400
-#define VMMFSOP_UNLINK 401
+
+#define VMMFSOP_UNLINK 4
 
 struct vm_fsop_getattr {
 	/* Input */
@@ -131,21 +131,13 @@ struct vm_fsop_mkdir {
 	int			err;
 };
 
-struct vm_fsop_create {
-  /* input */
-  char    name[256];
-  mode_t  mode;
-
-  // struct fuse_file_info fi;
-
-  /* Return value (errno) */
-  int     err;
-};
 
 struct vm_fsop_unlink {
+  
   char name[256];
   mode_t mode;
 
+  
   int err;
 };
 
