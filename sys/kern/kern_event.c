@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_event.c,v 1.169 2021/07/24 09:16:51 mpi Exp $	*/
+/*	$OpenBSD: kern_event.c,v 1.171 2021/11/12 04:34:22 visa Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -73,6 +73,7 @@ void	kqueue_terminate(struct proc *p, struct kqueue *);
 void	KQREF(struct kqueue *);
 void	KQRELE(struct kqueue *);
 
+void	kqueue_purge(struct proc *, struct kqueue *);
 int	kqueue_sleep(struct kqueue *, struct timespec *);
 
 int	kqueue_read(struct file *, struct uio *, int);
@@ -128,6 +129,9 @@ void	knote_remove(struct proc *p, struct kqueue *kq, struct knlist *list,
 
 void	filt_kqdetach(struct knote *kn);
 int	filt_kqueue(struct knote *kn, long hint);
+int	filt_kqueuemodify(struct kevent *kev, struct knote *kn);
+int	filt_kqueueprocess(struct knote *kn, struct kevent *kev);
+int	filt_kqueue_common(struct knote *kn, struct kqueue *kq);
 int	filt_procattach(struct knote *kn);
 void	filt_procdetach(struct knote *kn);
 int	filt_proc(struct knote *kn, long hint);
@@ -140,10 +144,12 @@ int	filt_timerprocess(struct knote *kn, struct kevent *kev);
 void	filt_seltruedetach(struct knote *kn);
 
 const struct filterops kqread_filtops = {
-	.f_flags	= FILTEROP_ISFD,
+	.f_flags	= FILTEROP_ISFD | FILTEROP_MPSAFE,
 	.f_attach	= NULL,
 	.f_detach	= filt_kqdetach,
 	.f_event	= filt_kqueue,
+	.f_modify	= filt_kqueuemodify,
+	.f_process	= filt_kqueueprocess,
 };
 
 const struct filterops proc_filtops = {
@@ -171,6 +177,7 @@ const struct filterops timer_filtops = {
 
 struct	pool knote_pool;
 struct	pool kqueue_pool;
+struct	mutex kqueue_klist_lock = MUTEX_INITIALIZER(IPL_MPFLOOR);
 int kq_ntimeouts = 0;
 int kq_timeoutmax = (4 * 1024);
 
@@ -219,6 +226,7 @@ KQRELE(struct kqueue *kq)
 	free(kq->kq_knlist, M_KEVENT, kq->kq_knlistsize *
 	    sizeof(struct knlist));
 	hashfree(kq->kq_knhash, KN_HASHSIZE, M_KEVENT);
+	klist_free(&kq->kq_sel.si_note);
 	pool_put(&kqueue_pool, kq);
 }
 
@@ -254,7 +262,7 @@ kqueue_kqfilter(struct file *fp, struct knote *kn)
 		return (EINVAL);
 
 	kn->kn_fop = &kqread_filtops;
-	klist_insert_locked(&kq->kq_sel.si_note, kn);
+	klist_insert(&kq->kq_sel.si_note, kn);
 	return (0);
 }
 
@@ -263,18 +271,62 @@ filt_kqdetach(struct knote *kn)
 {
 	struct kqueue *kq = kn->kn_fp->f_data;
 
-	klist_remove_locked(&kq->kq_sel.si_note, kn);
+	klist_remove(&kq->kq_sel.si_note, kn);
+}
+
+int
+filt_kqueue_common(struct knote *kn, struct kqueue *kq)
+{
+	MUTEX_ASSERT_LOCKED(&kq->kq_lock);
+
+	kn->kn_data = kq->kq_count;
+
+	return (kn->kn_data > 0);
 }
 
 int
 filt_kqueue(struct knote *kn, long hint)
 {
 	struct kqueue *kq = kn->kn_fp->f_data;
+	int active;
 
 	mtx_enter(&kq->kq_lock);
-	kn->kn_data = kq->kq_count;
+	active = filt_kqueue_common(kn, kq);
 	mtx_leave(&kq->kq_lock);
-	return (kn->kn_data > 0);
+
+	return (active);
+}
+
+int
+filt_kqueuemodify(struct kevent *kev, struct knote *kn)
+{
+	struct kqueue *kq = kn->kn_fp->f_data;
+	int active;
+
+	mtx_enter(&kq->kq_lock);
+	knote_modify(kev, kn);
+	active = filt_kqueue_common(kn, kq);
+	mtx_leave(&kq->kq_lock);
+
+	return (active);
+}
+
+int
+filt_kqueueprocess(struct knote *kn, struct kevent *kev)
+{
+	struct kqueue *kq = kn->kn_fp->f_data;
+	int active;
+
+	mtx_enter(&kq->kq_lock);
+	if (kev != NULL && (kn->kn_flags & EV_ONESHOT))
+		active = 1;
+	else
+		active = filt_kqueue_common(kn, kq);
+	if (active)
+		knote_submit(kn, kev);
+	mtx_leave(&kq->kq_lock);
+
+	return (active);
 }
 
 int
@@ -712,29 +764,55 @@ filter_process(struct knote *kn, struct kevent *kev)
 	return (active);
 }
 
+/*
+ * Initialize the current thread for poll/select system call.
+ * num indicates the number of serials that the system call may utilize.
+ * After this function, the valid range of serials is
+ * p_kq_serial <= x < p_kq_serial + num.
+ */
 void
-kqpoll_init(void)
+kqpoll_init(unsigned int num)
 {
 	struct proc *p = curproc;
 	struct filedesc *fdp;
 
-	if (p->p_kq != NULL) {
-		/*
-		 * Discard any badfd knotes that have been enqueued after
-		 * previous scan.
-		 * This prevents them from accumulating in case
-		 * scan does not make progress for some reason.
-		 */
-		kqpoll_dequeue(p, 0);
-		return;
+	if (p->p_kq == NULL) {
+		p->p_kq = kqueue_alloc(p->p_fd);
+		p->p_kq_serial = arc4random();
+		fdp = p->p_fd;
+		fdplock(fdp);
+		LIST_INSERT_HEAD(&fdp->fd_kqlist, p->p_kq, kq_next);
+		fdpunlock(fdp);
 	}
 
-	p->p_kq = kqueue_alloc(p->p_fd);
-	p->p_kq_serial = arc4random();
-	fdp = p->p_fd;
-	fdplock(fdp);
-	LIST_INSERT_HEAD(&fdp->fd_kqlist, p->p_kq, kq_next);
-	fdpunlock(fdp);
+	if (p->p_kq_serial + num < p->p_kq_serial) {
+		/* Serial is about to wrap. Clear all attached knotes. */
+		kqueue_purge(p, p->p_kq);
+		p->p_kq_serial = 0;
+	}
+
+	/*
+	 * Discard any detached knotes that have been enqueued after
+	 * previous scan.
+	 * This prevents them from accumulating in case
+	 * scan does not make progress for some reason.
+	 */
+	kqpoll_dequeue(p, 0);
+}
+
+/*
+ * Finish poll/select system call.
+ * num must have the same value that was used with kqpoll_init().
+ */
+void
+kqpoll_done(unsigned int num)
+{
+	struct proc *p = curproc;
+
+	KASSERT(p->p_kq != NULL);
+	KASSERT(p->p_kq_serial + num >= p->p_kq_serial);
+
+	p->p_kq_serial += num;
 }
 
 void
@@ -821,6 +899,7 @@ kqueue_alloc(struct filedesc *fdp)
 	TAILQ_INIT(&kq->kq_head);
 	mtx_init(&kq->kq_lock, IPL_HIGH);
 	task_set(&kq->kq_task, kqueue_task, kq);
+	klist_init_mutex(&kq->kq_sel.si_note, &kqueue_klist_lock);
 
 	return (kq);
 }
@@ -1331,6 +1410,15 @@ retry:
 
 		mtx_leave(&kq->kq_lock);
 
+		/* Drop expired kqpoll knotes. */
+		if (p->p_kq == kq &&
+		    p->p_kq_serial > (unsigned long)kn->kn_udata) {
+			filter_detach(kn);
+			knote_drop(kn, p);
+			mtx_enter(&kq->kq_lock);
+			continue;
+		}
+
 		memset(kevp, 0, sizeof(*kevp));
 		if (filter_process(kn, kevp) == 0) {
 			mtx_enter(&kq->kq_lock);
@@ -1529,6 +1617,7 @@ kqueue_task(void *arg)
 	/* Kernel lock is needed inside selwakeup(). */
 	KERNEL_ASSERT_LOCKED();
 
+	mtx_enter(&kqueue_klist_lock);
 	mtx_enter(&kq->kq_lock);
 	if (kq->kq_state & KQ_SEL) {
 		kq->kq_state &= ~KQ_SEL;
@@ -1538,6 +1627,7 @@ kqueue_task(void *arg)
 		mtx_leave(&kq->kq_lock);
 		KNOTE(&kq->kq_sel.si_note, 0);
 	}
+	mtx_leave(&kqueue_klist_lock);
 	KQRELE(kq);
 }
 

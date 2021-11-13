@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_lib.c,v 1.215 2021/09/08 12:56:14 tb Exp $ */
+/* $OpenBSD: s3_lib.c,v 1.219 2021/11/02 13:59:29 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -162,6 +162,7 @@
 #include "dtls_locl.h"
 #include "ssl_locl.h"
 #include "ssl_sigalgs.h"
+#include "ssl_tlsext.h"
 
 #define SSL3_NUM_CIPHERS	(sizeof(ssl3_ciphers) / sizeof(SSL_CIPHER))
 
@@ -1574,6 +1575,7 @@ ssl3_free(SSL *s)
 	tls13_clienthello_hash_clear(&S3I(s)->hs.tls13);
 
 	sk_X509_NAME_pop_free(S3I(s)->hs.tls12.ca_names, X509_NAME_free);
+	sk_X509_pop_free(s->internal->verified_chain, X509_free);
 
 	tls1_transcript_free(s);
 	tls1_transcript_hash_free(s);
@@ -1595,6 +1597,8 @@ ssl3_clear(SSL *s)
 
 	tls1_cleanup_key_block(s);
 	sk_X509_NAME_pop_free(S3I(s)->hs.tls12.ca_names, X509_NAME_free);
+	sk_X509_pop_free(s->internal->verified_chain, X509_free);
+	s->internal->verified_chain = NULL;
 
 	DH_free(S3I(s)->tmp.dh);
 	S3I(s)->tmp.dh = NULL;
@@ -1665,10 +1669,10 @@ _SSL_get_peer_tmp_key(SSL *s, EVP_PKEY **key)
 
 	*key = NULL;
 
-	if (s->session == NULL || SSI(s)->sess_cert == NULL)
+	if (s->session == NULL || s->session->sess_cert == NULL)
 		return 0;
 
-	sc = SSI(s)->sess_cert;
+	sc = s->session->sess_cert;
 
 	if ((pkey = EVP_PKEY_new()) == NULL)
 		return 0;
@@ -1782,17 +1786,21 @@ _SSL_set_ecdh_auto(SSL *s, int state)
 static int
 _SSL_set_tlsext_host_name(SSL *s, const char *name)
 {
+	int is_ip;
+	CBS cbs;
+
 	free(s->tlsext_hostname);
 	s->tlsext_hostname = NULL;
 
 	if (name == NULL)
 		return 1;
 
-	if (strlen(name) > TLSEXT_MAXLEN_host_name) {
+	CBS_init(&cbs, name, strlen(name));
+
+	if (!tlsext_sni_is_valid_hostname(&cbs, &is_ip)) {
 		SSLerror(s, SSL_R_SSL3_EXT_INVALID_SERVERNAME);
 		return 0;
 	}
-
 	if ((s->tlsext_hostname = strdup(name)) == NULL) {
 		SSLerror(s, ERR_R_INTERNAL_ERROR);
 		return 0;

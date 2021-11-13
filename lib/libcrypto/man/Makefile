@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.192 2021/10/19 10:55:57 schwarze Exp $
+# $OpenBSD: Makefile,v 1.211 2021/11/11 12:06:25 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -7,16 +7,20 @@ MAN=	\
 	AES_encrypt.3 \
 	ASN1_INTEGER_get.3 \
 	ASN1_OBJECT_new.3 \
+	ASN1_STRING_TABLE_add.3 \
 	ASN1_STRING_length.3 \
 	ASN1_STRING_new.3 \
 	ASN1_STRING_print_ex.3 \
-	ASN1_STRING_TABLE_add.3 \
 	ASN1_TIME_set.3 \
 	ASN1_TYPE_get.3 \
 	ASN1_generate_nconf.3 \
 	ASN1_get_object.3 \
 	ASN1_item_d2i.3 \
+	ASN1_item_digest.3 \
 	ASN1_item_new.3 \
+	ASN1_item_sign.3 \
+	ASN1_item_verify.3 \
+	ASN1_mbstring_copy.3 \
 	ASN1_parse_dump.3 \
 	ASN1_put_object.3 \
 	ASN1_time_parse.3 \
@@ -99,8 +103,8 @@ MAN=	\
 	DES_set_key.3 \
 	DH_generate_key.3 \
 	DH_generate_parameters.3 \
-	DH_get_ex_new_index.3 \
 	DH_get0_pqg.3 \
+	DH_get_ex_new_index.3 \
 	DH_new.3 \
 	DH_set_method.3 \
 	DH_size.3 \
@@ -110,8 +114,8 @@ MAN=	\
 	DSA_dup_DH.3 \
 	DSA_generate_key.3 \
 	DSA_generate_parameters.3 \
-	DSA_get_ex_new_index.3 \
 	DSA_get0_pqg.3 \
+	DSA_get_ex_new_index.3 \
 	DSA_meth_new.3 \
 	DSA_new.3 \
 	DSA_set_method.3 \
@@ -158,10 +162,12 @@ MAN=	\
 	EVP_EncodeInit.3 \
 	EVP_EncryptInit.3 \
 	EVP_OpenInit.3 \
-	EVP_PKEY_asn1_new.3 \
-	EVP_PKEY_asn1_get_count.3 \
+	EVP_PKCS82PKEY.3 \
 	EVP_PKEY_CTX_ctrl.3 \
 	EVP_PKEY_CTX_new.3 \
+	EVP_PKEY_add1_attr.3 \
+	EVP_PKEY_asn1_get_count.3 \
+	EVP_PKEY_asn1_new.3 \
 	EVP_PKEY_cmp.3 \
 	EVP_PKEY_decrypt.3 \
 	EVP_PKEY_derive.3 \
@@ -215,11 +221,11 @@ MAN=	\
 	PEM_read_bio_PrivateKey.3 \
 	PEM_write_bio_CMS_stream.3 \
 	PEM_write_bio_PKCS7_stream.3 \
+	PKCS12_SAFEBAG_new.3 \
 	PKCS12_create.3 \
 	PKCS12_new.3 \
 	PKCS12_newpass.3 \
 	PKCS12_parse.3 \
-	PKCS12_SAFEBAG_new.3 \
 	PKCS5_PBKDF2_HMAC.3 \
 	PKCS7_add_attribute.3 \
 	PKCS7_dataFinal.3 \
@@ -235,6 +241,7 @@ MAN=	\
 	PKCS7_sign_add_signer.3 \
 	PKCS7_verify.3 \
 	PKCS8_PRIV_KEY_INFO_new.3 \
+	PKCS8_pkey_set0.3 \
 	PKEY_USAGE_PERIOD_new.3 \
 	POLICYINFO_new.3 \
 	PROXY_POLICY_new.3 \
@@ -248,8 +255,8 @@ MAN=	\
 	RSA_blinding_on.3 \
 	RSA_check_key.3 \
 	RSA_generate_key.3 \
-	RSA_get_ex_new_index.3 \
 	RSA_get0_key.3 \
+	RSA_get_ex_new_index.3 \
 	RSA_meth_new.3 \
 	RSA_new.3 \
 	RSA_padding_add_PKCS1_type_1.3 \
@@ -274,10 +281,15 @@ MAN=	\
 	UI_get_string_type.3 \
 	UI_new.3 \
 	X25519.3 \
+	X509V3_EXT_print.3 \
+	X509V3_extensions_print.3 \
 	X509V3_get_d2i.3 \
 	X509_ALGOR_dup.3 \
+	X509_ATTRIBUTE_get0_object.3 \
 	X509_ATTRIBUTE_new.3 \
+	X509_ATTRIBUTE_set1_object.3 \
 	X509_CINF_new.3 \
+	X509_CRL_METHOD_new.3 \
 	X509_CRL_get0_by_serial.3 \
 	X509_CRL_new.3 \
 	X509_CRL_print.3 \
@@ -295,8 +307,12 @@ MAN=	\
 	X509_PKEY_new.3 \
 	X509_PUBKEY_new.3 \
 	X509_PURPOSE_set.3 \
+	X509_REQ_add1_attr.3 \
+	X509_REQ_add_extensions.3 \
 	X509_REQ_new.3 \
+	X509_REQ_print_ex.3 \
 	X509_REVOKED_new.3 \
+	X509_SIG_get0.3 \
 	X509_SIG_new.3 \
 	X509_STORE_CTX_get_error.3 \
 	X509_STORE_CTX_get_ex_new_index.3 \
@@ -306,8 +322,8 @@ MAN=	\
 	X509_STORE_get_by_subject.3 \
 	X509_STORE_load_locations.3 \
 	X509_STORE_new.3 \
-	X509_STORE_set_verify_cb_func.3 \
 	X509_STORE_set1_param.3 \
+	X509_STORE_set_verify_cb_func.3 \
 	X509_TRUST_set.3 \
 	X509_VERIFY_PARAM_new.3 \
 	X509_VERIFY_PARAM_set_flags.3 \
@@ -322,24 +338,28 @@ MAN=	\
 	X509_cmp_time.3 \
 	X509_digest.3 \
 	X509_find_by_subject.3 \
-	X509_get_pubkey.3 \
-	X509_get_serialNumber.3 \
-	X509_get_subject_name.3 \
-	X509_get_version.3 \
 	X509_get0_notBefore.3 \
 	X509_get0_signature.3 \
 	X509_get1_email.3 \
+	X509_get_extension_flags.3 \
+	X509_get_pubkey.3 \
+	X509_get_pubkey_parameters.3 \
+	X509_get_serialNumber.3 \
+	X509_get_subject_name.3 \
+	X509_get_version.3 \
 	X509_keyid_set1.3 \
+	X509_load_cert_file.3 \
 	X509_new.3 \
 	X509_ocspid_print.3 \
 	X509_policy_check.3 \
+	X509_policy_tree_get0_policies.3 \
 	X509_policy_tree_level_count.3 \
 	X509_print_ex.3 \
 	X509_sign.3 \
 	X509_signature_dump.3 \
 	X509_verify_cert.3 \
-	X509V3_EXT_print.3 \
-	X509V3_extensions_print.3 \
+	X509at_add1_attr.3 \
+	X509at_get_attr.3 \
 	X509v3_get_ext_by_NID.3 \
 	crypto.3 \
 	d2i_ASN1_NULL.3 \
@@ -359,8 +379,8 @@ MAN=	\
 	d2i_OCSP_RESPONSE.3 \
 	d2i_PKCS12.3 \
 	d2i_PKCS7.3 \
-	d2i_PKCS8_PRIV_KEY_INFO.3 \
 	d2i_PKCS8PrivateKey_bio.3 \
+	d2i_PKCS8_PRIV_KEY_INFO.3 \
 	d2i_PKEY_USAGE_PERIOD.3 \
 	d2i_POLICYINFO.3 \
 	d2i_PROXY_POLICY.3 \

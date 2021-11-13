@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket2.c,v 1.113 2021/07/26 05:51:13 mpi Exp $	*/
+/*	$OpenBSD: uipc_socket2.c,v 1.116 2021/11/06 05:26:33 visa Exp $	*/
 /*	$NetBSD: uipc_socket2.c,v 1.11 1996/02/04 02:17:55 christos Exp $	*/
 
 /*
@@ -159,10 +159,9 @@ sonewconn(struct socket *head, int connstatus)
 		return (NULL);
 	if (head->so_qlen + head->so_q0len > head->so_qlimit * 3)
 		return (NULL);
-	so = pool_get(&socket_pool, PR_NOWAIT|PR_ZERO);
+	so = soalloc(PR_NOWAIT | PR_ZERO);
 	if (so == NULL)
 		return (NULL);
-	rw_init(&so->so_lock, "solock");
 	so->so_type = head->so_type;
 	so->so_options = head->so_options &~ SO_ACCEPTCONN;
 	so->so_linger = head->so_linger;
@@ -189,6 +188,8 @@ sonewconn(struct socket *head, int connstatus)
 	so->so_rcv.sb_lowat = head->so_rcv.sb_lowat;
 	so->so_rcv.sb_timeo_nsecs = head->so_rcv.sb_timeo_nsecs;
 
+	klist_init(&so->so_rcv.sb_sel.si_note, &socket_klistops, so);
+	klist_init(&so->so_snd.sb_sel.si_note, &socket_klistops, so);
 	sigio_init(&so->so_sigio);
 	sigio_copy(&so->so_sigio, &head->so_sigio);
 
@@ -196,6 +197,8 @@ sonewconn(struct socket *head, int connstatus)
 	if ((*so->so_proto->pr_attach)(so, 0)) {
 		(void) soqremque(so, soqueue);
 		sigio_free(&so->so_sigio);
+		klist_free(&so->so_rcv.sb_sel.si_note);
+		klist_free(&so->so_snd.sb_sel.si_note);
 		pool_put(&socket_pool, so);
 		return (NULL);
 	}
@@ -212,10 +215,7 @@ soqinsque(struct socket *head, struct socket *so, int q)
 {
 	soassertlocked(head);
 
-#ifdef DIAGNOSTIC
-	if (so->so_onq != NULL)
-		panic("soqinsque");
-#endif
+	KASSERT(so->so_onq == NULL);
 
 	so->so_head = head;
 	if (q == 0) {

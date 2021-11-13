@@ -1,4 +1,4 @@
-/* $OpenBSD: crypto.h,v 1.50 2019/01/19 01:07:00 tb Exp $ */
+/* $OpenBSD: crypto.h,v 1.52 2021/11/01 08:14:36 tb Exp $ */
 /* ====================================================================
  * Copyright (c) 1998-2006 The OpenSSL Project.  All rights reserved.
  *
@@ -505,6 +505,9 @@ uint64_t OPENSSL_cpu_caps(void);
 int OPENSSL_isservice(void);
 
 #ifndef LIBRESSL_INTERNAL
+int FIPS_mode(void);
+int FIPS_mode_set(int r);
+
 void OPENSSL_init(void);
 
 /* CRYPTO_memcmp returns zero iff the |len| bytes at |a| and |b| are equal. It

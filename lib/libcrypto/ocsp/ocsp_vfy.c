@@ -1,4 +1,4 @@
-/* $OpenBSD: ocsp_vfy.c,v 1.15 2017/01/29 17:49:23 beck Exp $ */
+/* $OpenBSD: ocsp_vfy.c,v 1.17 2021/11/01 20:53:08 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -59,6 +59,8 @@
 #include <openssl/ocsp.h>
 #include <openssl/err.h>
 #include <string.h>
+
+#include "x509_lcl.h"
 
 static int ocsp_find_signer(X509 **psigner, OCSP_BASICRESP *bs,
     STACK_OF(X509) *certs, X509_STORE *st, unsigned long flags);
@@ -177,6 +179,13 @@ end:
 	if (bs->certs && certs)
 		sk_X509_free(untrusted);
 	return ret;
+}
+
+int
+OCSP_resp_get0_signer(OCSP_BASICRESP *bs, X509 **signer,
+    STACK_OF(X509) *extra_certs)
+{
+	return ocsp_find_signer(signer, bs, extra_certs, NULL, 0) > 0;
 }
 
 static int

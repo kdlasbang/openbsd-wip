@@ -1,5 +1,6 @@
-/*	$OpenBSD: x509.c,v 1.25 2021/10/12 15:16:45 job Exp $ */
+/*	$OpenBSD: x509.c,v 1.29 2021/10/28 09:02:19 beck Exp $ */
 /*
+ * Copyright (c) 2021 Claudio Jeker <claudio@openbsd.org>
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -186,32 +187,32 @@ x509_get_purpose(X509 *x, const char *fn)
 char *
 x509_get_pubkey(X509 *x, const char *fn)
 {
-	EVP_PKEY	*evp;
-	EC_KEY		*ec;
+	EVP_PKEY	*pkey;
+	EC_KEY		*eckey;
 	int		 nid;
 	const char	*cname;
 	uint8_t		*pubkey = NULL;
 	char		*res = NULL;
 	int		 len;
 
-	evp = X509_get0_pubkey(x);
-	if (evp == NULL) {
+	pkey = X509_get0_pubkey(x);
+	if (pkey == NULL) {
 		warnx("%s: X509_get_pubkey failed in %s", fn, __func__);
 		goto out;
 	}
-	if (EVP_PKEY_base_id(evp) != EVP_PKEY_EC) {
+	if (EVP_PKEY_base_id(pkey) != EVP_PKEY_EC) {
 		warnx("%s: Expected EVP_PKEY_EC, got %d", fn,
-		    EVP_PKEY_base_id(evp));
+		    EVP_PKEY_base_id(pkey));
 		goto out;
 	}
 
-	ec = EVP_PKEY_get0_EC_KEY(evp);
-	if (ec == NULL) {
+	eckey = EVP_PKEY_get0_EC_KEY(pkey);
+	if (eckey == NULL) {
 		warnx("%s: Incorrect key type", fn);
 		goto out;
 	}
 
-	nid = EC_GROUP_get_curve_name(EC_KEY_get0_group(ec));
+	nid = EC_GROUP_get_curve_name(EC_KEY_get0_group(eckey));
 	if (nid != NID_X9_62_prime256v1) {
 		if ((cname = EC_curve_nid2nist(nid)) == NULL)
 			cname = OBJ_nid2sn(nid);
@@ -219,12 +220,12 @@ x509_get_pubkey(X509 *x, const char *fn)
 		goto out;
 	}
 
-	if (!EC_KEY_check_key(ec)) {
+	if (!EC_KEY_check_key(eckey)) {
 		warnx("%s: EC_KEY_check_key failed in %s", fn, __func__);
 		goto out;
 	}
 
-	len = i2d_PUBKEY(evp, &pubkey);
+	len = i2d_PUBKEY(pkey, &pubkey);
 	if (len <= 0) {
 		warnx("%s: i2d_PUBKEY failed in %s", fn, __func__);
 		goto out;
@@ -281,6 +282,13 @@ x509_get_aia(X509 *x, const char *fn)
 		goto out;
 	}
 
+	if (ASN1_STRING_length(ad->location->d.uniformResourceIdentifier)
+	    > MAX_URI_LENGTH) {
+		warnx("%s: RFC 6487 section 4.8.7: AIA: "
+		    "URI exceeds max length of %d", fn, MAX_URI_LENGTH);
+		goto out;
+	}
+
 	aia = strndup(
 	    ASN1_STRING_get0_data(ad->location->d.uniformResourceIdentifier),
 	    ASN1_STRING_length(ad->location->d.uniformResourceIdentifier));
@@ -295,24 +303,29 @@ out:
 /*
  * Extract the expire time (not-after) of a certificate.
  */
-time_t
-x509_get_expire(X509 *x, const char *fn)
+int
+x509_get_expire(X509 *x, const char *fn, time_t *tt)
 {
 	const ASN1_TIME	*at;
 	struct tm	 expires_tm;
 	time_t		 expires;
 
 	at = X509_get0_notAfter(x);
-	if (at == NULL)
-		errx(1, "%s: X509_get0_notafter failed", fn);
+	if (at == NULL) {
+		warnx("%s: X509_get0_notafter failed", fn);
+		return 0;
+	}
 	memset(&expires_tm, 0, sizeof(expires_tm));
-	if (ASN1_time_parse(at->data, at->length, &expires_tm, 0) == -1)
-		errx(1, "%s: ASN1_time_parse failed", fn);
-
+	if (ASN1_time_parse(at->data, at->length, &expires_tm, 0) == -1) {
+		warnx("%s: ASN1_time_parse failed", fn);
+		return 0;
+	}
 	if ((expires = mktime(&expires_tm)) == -1)
 		errx(1, "%s: mktime failed", fn);
 
-	return expires;
+	*tt = expires;
+	return 1;
+
 }
 
 /*
@@ -373,6 +386,13 @@ x509_get_crl(X509 *x, const char *fn)
 	if (name->type != GEN_URI) {
 		warnx("%s: RFC 6487 section 4.8.6: CRL: "
 		    "want URI type, have %d", fn, name->type);
+		goto out;
+	}
+
+	if (ASN1_STRING_length(name->d.uniformResourceIdentifier)
+	    > MAX_URI_LENGTH) {
+		warnx("%s: RFC 6487 section 4.8.6: CRL: "
+		    "URI exceeds max length of %d", fn, MAX_URI_LENGTH);
 		goto out;
 	}
 
