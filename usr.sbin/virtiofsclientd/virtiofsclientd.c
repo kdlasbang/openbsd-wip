@@ -134,12 +134,34 @@ virtiofsclient_readlink(const char *path, char *buf, size_t size)
 	return -EIO;
 }
 
+
+
+
+/*Doesn't work properly*/
 int
 virtiofsclient_mknod(const char *path, mode_t mode, dev_t rdev)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+    struct vm_fsop_mknod mkn, *retbuf;
+    struct vm_fsop op;
+    int ret;
 
-	return -EIO;
+    printf("%s: called\n", __func__);
+
+    op.opcode = VMMFSOP_MKNOD;
+    op.seq = ++curseq;
+    strlcpy((char *)&mkn.name, path, 256);
+    mkn.mode = mode;
+    mkn.dev = rdev;
+    memcpy(&op.payload, &mkn, sizeof(mkn));
+
+    ret = virtiofsclient_send_fuse_msg(&op);
+    if (!ret) {
+        retbuf = (struct vm_fsop_mknod *)&op.payload;
+        return retbuf->err;
+    }
+
+    return ret;
+
 }
 
 int
@@ -191,12 +213,29 @@ virtiofsclient_unlink(const char *path)
   return ret;
 }
 
+
+/*Work properly*/
 int
 virtiofsclient_rmdir(const char *path)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+    struct vm_fsop_rmdir rmd, *retbuf;
+    struct vm_fsop op;
+    int ret;
 
-	return -EIO;
+    printf("%s: called\n", __func__);
+
+    op.opcode = VMMFSOP_RMDIR;
+    op.seq = ++curseq;
+    strlcpy((char *)&rmd.name, path, 256);
+    memcpy(&op.payload, &rmd, sizeof(rmd));
+
+    ret = virtiofsclient_send_fuse_msg(&op);
+    if (!ret) {
+        retbuf = (struct vm_fsop_rmdir *)&op.payload;
+        return retbuf->err;
+    }
+
+    return ret; 
 }
 
 int
@@ -208,13 +247,32 @@ virtiofsclient_symlink(const char *from, const char *to)
 	return -EIO;
 }
 
+
+
+/*Work properly*/
 int
 virtiofsclient_rename(const char *from, const char *to)
 {
-	warnx("unimplemented function %s for from=%s to=%s", __func__,
-	    from, to);
+    struct vm_fsop_rename rn, *retbuf;
+    struct vm_fsop op;
+    int ret;
 
-	return -EIO;
+    printf("%s: called\n", __func__);
+
+    op.opcode = VMMFSOP_RENAME;
+    op.seq = ++curseq;
+    strlcpy((char *)&rn.old_path, from, 256);
+    strlcpy((char *)&rn.new_path, to, 256);
+    memcpy(&op.payload, &rn, sizeof(rn));
+
+    ret = virtiofsclient_send_fuse_msg(&op);
+    if (!ret) {
+        retbuf = (struct vm_fsop_rename *)&op.payload;
+        return retbuf->err;
+    }
+
+    return ret;
+
 }
 
 int
@@ -242,12 +300,31 @@ virtiofsclient_chown(const char *path, uid_t uid, gid_t gid)
 	return -EIO;
 }
 
+
+
+/*Doesn't work properly*/
 int
 virtiofsclient_truncate(const char *path, off_t size)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+    struct vm_fsop_truncate tru, *retbuf;
+    struct vm_fsop op;
+    int ret;
 
-	return -EIO;
+    printf("%s: called\n", __func__);
+
+    op.opcode = VMMFSOP_TRUNCATE;
+    op.seq = ++curseq;
+    tru.size = size;
+    strlcpy((char *)&tru.name, path, 256);
+    memcpy(&op.payload, &tru, sizeof(tru));
+
+    ret = virtiofsclient_send_fuse_msg(&op);
+    if (!ret) {
+        retbuf = (struct vm_fsop_truncate *)&op.payload;
+        return retbuf->err;
+    }
+
+    return ret;
 }
 
 int
@@ -258,12 +335,35 @@ virtiofsclient_utime(const char *file, struct utimbuf *timep)
 	return -EIO;
 }
 
+
+/*Doesn't work properly*/
 int
 virtiofsclient_open(const char *path, struct fuse_file_info *fi)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+    struct vm_fsop_open on, *retbuf;
+    struct vm_fsop op;
+    int ret;
 
-	return -EIO;
+    printf("%s: called\n", __func__);
+    printf("virtiofsclient_open() fi->falgs=%d\n", fi->flags);
+	
+    op.opcode = VMMFSOP_OPEN;
+    op.seq = ++curseq;
+    strlcpy((char *)&on.name, path, 256);
+    on.fi = *fi;
+    printf("virtiofsclient_open() on->fi.falgs=%d\n", on.fi.flags);
+    memcpy(&op.payload, &on, sizeof(on));
+
+    ret = virtiofsclient_send_fuse_msg(&op);
+    if (!ret) {
+        retbuf = (struct vm_fsop_open *)&op.payload;
+
+        memcpy(fi, &retbuf->fi, sizeof(*fi));
+        return retbuf->err;
+    }
+
+    return ret;
+
 }
 
 int
@@ -383,14 +483,38 @@ virtiofsclient_access(const char *path, int amode)
 	return -EIO;
 }
 
+
+
+/*Doesn't work properly*/
 int
 virtiofsclient_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-        warnx("unimplemented function %s for path %s", __func__, path);
+    struct vm_fsop_create ca, *retbuf;
+    struct vm_fsop op;
+    int ret;
 
+    printf("%s: called\n", __func__);
 
-	return -EIO;      
+    op.opcode = VMMFSOP_CREATE;
+    op.seq = ++curseq;
+    strlcpy((char *)&ca.name, path, 256);
+    ca.mode = mode;
+    memcpy(&op.payload, &ca, sizeof(ca));
+
+    ret = virtiofsclient_send_fuse_msg(&op);
+    if (!ret) {
+        retbuf = (struct vm_fsop_create *)&op.payload;
+
+        memcpy(fi, &retbuf->fi, sizeof(*fi));
+
+        return retbuf->err;
+    }
+
+    return ret;
+
 }
+
+
 
 int
 virtiofsclient_ftruncate(const char *path, off_t offset,

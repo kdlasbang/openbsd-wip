@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sig.c,v 1.285 2021/10/06 15:46:03 claudio Exp $	*/
+/*	$OpenBSD: kern_sig.c,v 1.288 2021/11/12 17:57:13 cheloha Exp $	*/
 /*	$NetBSD: kern_sig.c,v 1.54 1996/04/22 01:38:32 christos Exp $	*/
 
 /*
@@ -230,7 +230,7 @@ sigstkinit(struct sigaltstack *ss)
 {
 	ss->ss_flags = SS_DISABLE;
 	ss->ss_size = 0;
-	ss->ss_sp = 0;
+	ss->ss_sp = NULL;
 }
 
 /*
@@ -509,7 +509,7 @@ dosigsuspend(struct proc *p, sigset_t newmask)
 }
 
 /*
- * Suspend process until signal, providing mask to be set
+ * Suspend thread until signal, providing mask to be set
  * in the meantime.  Note nonstandard calling convention:
  * libc stub passes mask, not pointer, to save a copyin.
  */
@@ -519,12 +519,10 @@ sys_sigsuspend(struct proc *p, void *v, register_t *retval)
 	struct sys_sigsuspend_args /* {
 		syscallarg(int) mask;
 	} */ *uap = v;
-	struct process *pr = p->p_p;
-	struct sigacts *ps = pr->ps_sigacts;
 
 	dosigsuspend(p, SCARG(uap, mask) &~ sigcantmask);
-	while (tsleep_nsec(ps, PPAUSE|PCATCH, "sigsusp", INFSLP) == 0)
-		/* void */;
+	while (tsleep_nsec(&nowake, PPAUSE|PCATCH, "sigsusp", INFSLP) == 0)
+		continue;
 	/* always return EINTR rather than ERESTART... */
 	return (EINTR);
 }
@@ -1080,7 +1078,7 @@ ptsignal(struct proc *p, int signum, enum signal_type type)
 		 * cause the process to run.
 		 */
 		goto runfast;
-		/*NOTREACHED*/
+		/* NOTREACHED */
 
 	case SSTOP:
 		/*
@@ -1116,7 +1114,7 @@ ptsignal(struct proc *p, int signum, enum signal_type type)
 				atomic_clearbits_int(siglist, mask);
 			if (action == SIG_CATCH)
 				goto runfast;
-			if (p->p_wchan == 0)
+			if (p->p_wchan == NULL)
 				goto run;
 			p->p_stat = SSLEEP;
 			goto out;
@@ -1152,7 +1150,7 @@ ptsignal(struct proc *p, int signum, enum signal_type type)
 		 */
 		goto out;
 	}
-	/*NOTREACHED*/
+	/* NOTREACHED */
 
 runfast:
 	/*
@@ -1311,7 +1309,7 @@ cursig(struct proc *p)
 				break;		/* == ignore */
 			} else
 				goto keep;
-			/*NOTREACHED*/
+			/* NOTREACHED */
 		case (long)SIG_IGN:
 			/*
 			 * Masking above should prevent us ever trying
@@ -1410,12 +1408,12 @@ postsig(struct proc *p, int signum)
 	action = ps->ps_sigact[signum];
 	info = (ps->ps_siginfo & mask) != 0;
 	onstack = (ps->ps_sigonstack & mask) != 0;
-	sigval.sival_ptr = 0;
+	sigval.sival_ptr = NULL;
 
 	if (p->p_sisig != signum) {
 		trapno = 0;
 		code = SI_USER;
-		sigval.sival_ptr = 0;
+		sigval.sival_ptr = NULL;
 	} else {
 		trapno = p->p_sitrapno;
 		code = p->p_sicode;
@@ -2139,7 +2137,7 @@ single_thread_clear(struct proc *p, int flag)
 		 * it back into some sleep queue
 		 */
 		if (q->p_stat == SSTOP && (q->p_flag & flag) == 0) {
-			if (q->p_wchan == 0)
+			if (q->p_wchan == NULL)
 				setrunnable(q);
 			else
 				q->p_stat = SSLEEP;

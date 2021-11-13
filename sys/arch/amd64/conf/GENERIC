@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.502 2021/09/14 08:19:58 jan Exp $
+#	$OpenBSD: GENERIC,v 1.505 2021/11/02 08:25:47 patrick Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -110,7 +110,7 @@ kate*	at pci?			# AMD K8 temperature sensor
 km*	at pci?			# AMD K10 temperature sensor
 ksmn*	at pci?			# AMD K17 temperature sensor
 amas*	at pci? disable		# AMD memory configuration
-pchtemp* at pci?		# Intel C610 termperature sensor
+pchtemp* at pci?		# Intel C610 temperature sensor
 ccp*	at pci?			# AMD Cryptographic Co-processor
 
 # National Semiconductor LM7[89] and compatible hardware monitors
@@ -545,6 +545,7 @@ ixl*	at pci?				# Intel Ethernet 700 Series
 mcx*	at pci?				# Mellanox ConnectX-4
 iavf*	at pci?				# Intel Ethernet Adaptive VF
 aq*	at pci?				# Aquantia aQtion Ethernet
+igc*	at pci?				# Intel I225 Ethernet
 
 # Wireless network cards
 acx*	at pci?				# TI ACX100/ACX111 (802.11b/g)
@@ -671,11 +672,6 @@ bktr0	at pci?
 radio*	at bktr?
 
 #wdt0	at pci?			# Ind Computer Source PCI-WDT50x driver
-
-# crypto support
-hifn*	at pci?			# Hi/fn 7751 crypto card
-ubsec*	at pci?			# Bluesteel Networks 5xxx crypto card
-safe*	at pci?			# SafeNet SafeXcel 1141/1741
 
 xspd0	at pci?			# XenSource Platform Device
 

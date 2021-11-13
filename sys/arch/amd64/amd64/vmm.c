@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.293 2021/09/13 22:16:27 dv Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.294 2021/10/26 16:29:49 deraadt Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -262,7 +262,7 @@ const struct kmem_pa_mode vmm_kp_contig = {
 };
 
 struct cfdriver vmm_cd = {
-	NULL, "vmm", DV_DULL
+	NULL, "vmm", DV_DULL, CD_SKIPHIBERNATE
 };
 
 const struct cfattach vmm_ca = {
@@ -6328,7 +6328,7 @@ vmx_handle_rdmsr(struct vcpu *vcpu)
 	uint64_t insn_length;
 	uint64_t *rax, *rdx;
 	uint64_t *rcx;
-	int ret;
+	//int ret;
 
 	if (vmread(VMCS_INSTRUCTION_LENGTH, &insn_length)) {
 		printf("%s: can't obtain instruction length\n", __func__);
@@ -6360,8 +6360,8 @@ vmx_handle_rdmsr(struct vcpu *vcpu)
 		/* Unsupported MSRs causes #GP exception, don't advance %rip */
 		DPRINTF("%s: unsupported rdmsr (msr=0x%llx), injecting #GP\n",
 		    __func__, *rcx);
-		ret = vmm_inject_gp(vcpu);
-		return (ret);
+		//ret = vmm_inject_gp(vcpu);
+		//return (ret);
 	}
 
 	vcpu->vc_gueststate.vg_rip += insn_length;
@@ -6606,8 +6606,7 @@ svm_handle_msr(struct vcpu *vcpu)
 	uint64_t insn_length, val;
 	uint64_t *rax, *rcx, *rdx;
 	struct vmcb *vmcb = (struct vmcb *)vcpu->vc_control_va;
-	int ret;
-
+    int ret;
 	/* XXX: Validate RDMSR / WRMSR insn_length */
 	insn_length = 2;
 
@@ -6670,8 +6669,8 @@ svm_handle_msr(struct vcpu *vcpu)
 			 */
 			DPRINTF("%s: unsupported rdmsr (msr=0x%llx), "
 			    "injecting #GP\n", __func__, *rcx);
-			ret = vmm_inject_gp(vcpu);
-			return (ret);
+            ret = vmm_inject_gp(vcpu);
+            return (ret);
 		}
 	}
 

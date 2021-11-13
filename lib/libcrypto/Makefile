@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.46 2021/09/03 23:30:42 job Exp $
+# $OpenBSD: Makefile,v 1.49 2021/11/01 20:53:08 tb Exp $
 
 LIB=	crypto
 LIBREBUILD=y
@@ -29,7 +29,7 @@ CFLAGS+= -DOPENSSL_NO_HW_PADLOCK # XXX enable this?
 
 CFLAGS+= -I${LCRYPTO_SRC}
 CFLAGS+= -I${LCRYPTO_SRC}/asn1 -I${LCRYPTO_SRC}/bn -I${LCRYPTO_SRC}/evp
-CFLAGS+= -I${LCRYPTO_SRC}/modes
+CFLAGS+= -I${LCRYPTO_SRC}/modes -I${LCRYPTO_SRC}/x509
 
 # XXX FIXME ecdsa and ec should be merged
 CFLAGS+= -I${LCRYPTO_SRC}/ecdsa
@@ -41,7 +41,7 @@ SYMBOL_LIST=	${.CURDIR}/Symbols.list
 
 # crypto/
 SRCS+= cryptlib.c malloc-wrapper.c mem_dbg.c cversion.c ex_data.c cpt_err.c
-SRCS+= o_time.c o_str.c o_init.c
+SRCS+= o_time.c o_str.c o_init.c o_fips.c
 SRCS+= mem_clr.c crypto_init.c crypto_lock.c
 
 # aes/
