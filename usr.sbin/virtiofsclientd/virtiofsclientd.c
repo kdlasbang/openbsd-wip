@@ -170,9 +170,25 @@ virtiofsclient_mkdir(const char *path, mode_t mode)
 int
 virtiofsclient_unlink(const char *path)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+  struct vm_fsop_unlink ul, *retbuf;
+  struct vm_fsop op;
+  int ret;
 
-	return -EIO;
+  printf("%s: called\n", __func__);
+
+  op.opcode = VMMFSOP_UNLINK;
+  op.seq = ++curseq;
+  strlcpy((char *)&ul.name, path, 256);
+  
+  memcpy(&op.payload, &ul, sizeof(ul));
+  ret = virtiofsclient_send_fuse_msg(&op);
+  if (!ret) {
+    retbuf = (struct vm_fsop_unlink *)&op.payload;
+
+    return retbuf->err;
+  }
+
+  return ret;
 }
 
 int

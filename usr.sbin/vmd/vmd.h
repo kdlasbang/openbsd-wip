@@ -96,6 +96,7 @@
 #define VMMFSOP_MKDIR 3
 
 #define VMMFSOP_CREATE 400
+#define VMMFSOP_UNLINK 401
 
 struct vm_fsop_getattr {
 	/* Input */
@@ -139,6 +140,13 @@ struct vm_fsop_create {
 
   /* Return value (errno) */
   int     err;
+};
+
+struct vm_fsop_unlink {
+  char name[256];
+  mode_t mode;
+
+  int err;
 };
 
 enum imsg_type {
