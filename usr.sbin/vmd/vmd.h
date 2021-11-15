@@ -104,8 +104,7 @@
 #define VMMFSOP_RENAME 203
 #define VMMFSOP_TRUNCATE 204
 #define VMMFSOP_OPEN 205
-
-
+#define VMMFSOP_UNLINK 4
 
 struct vm_fsop_getattr {
 	/* Input */
@@ -140,6 +139,16 @@ struct vm_fsop_mkdir {
 	int			err;
 };
 
+
+struct vm_fsop_unlink {
+  
+  char name[256];
+  mode_t mode;
+
+  
+  int err;
+};
+  
 struct vm_fsop_rmdir {
     /* Input */
     char            name[256];
@@ -205,6 +214,7 @@ struct vm_fsop_open {
 
     /* Return value (errno) */
     int                     err;
+
 };
 
 enum imsg_type {
