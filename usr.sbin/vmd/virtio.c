@@ -42,6 +42,7 @@
 #include <unistd.h>
 
 #include <fcntl.h>
+#include <dirent.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -2637,6 +2638,30 @@ vmmfs_open(void)
     }
 }
 
+void
+vmmfs_opendir(void)
+{       
+        struct vm_fsop_opendir *op;
+        char path[256];
+        int err;
+        //int res;
+
+        op = (struct vm_fsop_opendir *)&vmmfs_op.payload;
+
+        log_debug("%s: requested path: %s", __func__,
+            op->name);
+
+        /* XXX this is not right */
+        snprintf(path, 256, "/export/vmmfs/%s", op->name);
+//      struct xmp_dirp *d = malloc(sizeof(struct xmp_dirp));
+
+        err = opendir(path);
+        op->err = err;
+//      fi->fh=fd;
+        if (err) {
+                log_warn("%s: open failed", __func__);
+        }
+}
 
 void
 vmmfs_finish_op(void)
@@ -2683,6 +2708,9 @@ vmmfs_dispatch(void)
                 break;
            case VMMFSOP_OPEN:
                 vmmfs_open();
+                break;
+	   case VMMFSOP_OPENDIR:
+                vmmfs_opendir();
                 break;
 	}
 	vmmfs_finish_op();
