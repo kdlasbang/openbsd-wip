@@ -1235,11 +1235,13 @@
 ./usr/share/man/man4/arm64/ampintc.4
 ./usr/share/man/man4/arm64/apldart.4
 ./usr/share/man/man4/arm64/apldog.4
+./usr/share/man/man4/arm64/aplhidev.4
 ./usr/share/man/man4/arm64/aplintc.4
 ./usr/share/man/man4/arm64/aplns.4
 ./usr/share/man/man4/arm64/aplpcie.4
 ./usr/share/man/man4/arm64/aplpinctrl.4
 ./usr/share/man/man4/arm64/aplpmu.4
+./usr/share/man/man4/arm64/aplspi.4
 ./usr/share/man/man4/arm64/aplspmi.4
 ./usr/share/man/man4/arm64/apm.4
 ./usr/share/man/man4/arm64/efi.4
@@ -1421,6 +1423,7 @@
 ./usr/share/man/man4/gpiocharger.4
 ./usr/share/man/man4/gpiodcf.4
 ./usr/share/man/man4/gpioiic.4
+./usr/share/man/man4/gpiokeys.4
 ./usr/share/man/man4/gpioleds.4
 ./usr/share/man/man4/gpioow.4
 ./usr/share/man/man4/graphaudio.4
@@ -1429,7 +1432,6 @@
 ./usr/share/man/man4/hds.4
 ./usr/share/man/man4/hiclock.4
 ./usr/share/man/man4/hidwusb.4
-./usr/share/man/man4/hifn.4
 ./usr/share/man/man4/hil.4
 ./usr/share/man/man4/hilid.4
 ./usr/share/man/man4/hilkbd.4
@@ -1509,6 +1511,7 @@
 ./usr/share/man/man4/icmp6.4
 ./usr/share/man/man4/icsphy.4
 ./usr/share/man/man4/ifmedia.4
+./usr/share/man/man4/igc.4
 ./usr/share/man/man4/iha.4
 ./usr/share/man/man4/ihidev.4
 ./usr/share/man/man4/iic.4
@@ -1840,7 +1843,6 @@
 ./usr/share/man/man4/rtwn.4
 ./usr/share/man/man4/rum.4
 ./usr/share/man/man4/run.4
-./usr/share/man/man4/safe.4
 ./usr/share/man/man4/safte.4
 ./usr/share/man/man4/sbus.4
 ./usr/share/man/man4/schsio.4
@@ -1950,7 +1952,6 @@
 ./usr/share/man/man4/sti.4
 ./usr/share/man/man4/stp.4
 ./usr/share/man/man4/sv.4
-./usr/share/man/man4/switch.4
 ./usr/share/man/man4/sxiccmu.4
 ./usr/share/man/man4/sxidog.4
 ./usr/share/man/man4/sximmc.4
@@ -1995,7 +1996,6 @@
 ./usr/share/man/man4/ubcmtp.4
 ./usr/share/man/man4/uberry.4
 ./usr/share/man/man4/ubsa.4
-./usr/share/man/man4/ubsec.4
 ./usr/share/man/man4/ucc.4
 ./usr/share/man/man4/uchcom.4
 ./usr/share/man/man4/ucom.4
@@ -2177,6 +2177,7 @@
 ./usr/share/man/man5/ifstated.conf.5
 ./usr/share/man/man5/iked.conf.5
 ./usr/share/man/man5/info.5
+./usr/share/man/man5/install.site.5
 ./usr/share/man/man5/installurl.5
 ./usr/share/man/man5/intro.5
 ./usr/share/man/man5/ipsec.conf.5
@@ -2238,7 +2239,6 @@
 ./usr/share/man/man5/sparc64/ldom.conf.5
 ./usr/share/man/man5/ssh_config.5
 ./usr/share/man/man5/sshd_config.5
-./usr/share/man/man5/switchd.conf.5
 ./usr/share/man/man5/sysctl.conf.5
 ./usr/share/man/man5/syslog.conf.5
 ./usr/share/man/man5/table.5
@@ -2589,8 +2589,6 @@
 ./usr/share/man/man8/starttls.8
 ./usr/share/man/man8/sticky.8
 ./usr/share/man/man8/swapctl.8
-./usr/share/man/man8/switchctl.8
-./usr/share/man/man8/switchd.8
 ./usr/share/man/man8/sync.8
 ./usr/share/man/man8/sysctl.8
 ./usr/share/man/man8/syslogc.8

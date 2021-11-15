@@ -1,4 +1,4 @@
-/*	$Id: test-mft.c,v 1.15 2021/10/09 18:43:49 deraadt Exp $ */
+/*	$Id: test-mft.c,v 1.17 2021/10/26 16:59:54 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -33,30 +33,7 @@
 
 #include "extern.h"
 
-#include "test-common.c"
-
 int verbose;
-
-static void
-mft_print(const struct mft *p)
-{
-	size_t	 i;
-	char hash[256];
-
-	assert(p != NULL);
-
-	printf("Subject key identifier: %s\n", pretty_key_id(p->ski));
-	printf("Authority key identifier: %s\n", pretty_key_id(p->aki));
-	printf("Authority info access: %s\n", p->aia);
-	printf("Manifest Number: %s\n", p->seqnum);
-	for (i = 0; i < p->filesz; i++) {
-		b64_ntop(p->files[i].hash, sizeof(p->files[i].hash),
-		    hash, sizeof(hash));
-		printf("%5zu: %s\n", i + 1, p->files[i].file);
-		printf("\thash %s\n", hash);
-	}
-}
-
 
 int
 main(int argc, char *argv[])
@@ -65,6 +42,8 @@ main(int argc, char *argv[])
 	struct mft	*p;
 	BIO		*bio_out = NULL;
 	X509		*xp = NULL;
+	unsigned char	*buf;
+	size_t		 len;
 
 	ERR_load_crypto_strings();
 	OpenSSL_add_all_ciphers();
@@ -93,8 +72,11 @@ main(int argc, char *argv[])
 		errx(1, "argument missing");
 
 	for (i = 0; i < argc; i++) {
-		if ((p = mft_parse(&xp, argv[i])) == NULL)
-			break;
+		buf = load_file(argv[i], &len);
+		if ((p = mft_parse(&xp, argv[i], buf, len)) == NULL) {
+			free(buf);
+			continue;
+		}
 		if (verb)
 			mft_print(p);
 		if (ppem) {
@@ -102,6 +84,7 @@ main(int argc, char *argv[])
 				errx(1,
 				    "PEM_write_bio_X509: unable to write cert");
 		}
+		free(buf);
 		mft_free(p);
 		X509_free(xp);
 	}

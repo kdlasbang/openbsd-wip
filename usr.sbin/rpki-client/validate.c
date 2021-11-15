@@ -1,4 +1,4 @@
-/*	$OpenBSD: validate.c,v 1.16 2021/10/11 16:50:03 job Exp $ */
+/*	$OpenBSD: validate.c,v 1.22 2021/11/04 11:32:55 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -29,14 +29,6 @@
 #include <unistd.h>
 
 #include "extern.h"
-
-static void
-tracewarn(const struct auth *a)
-{
-
-	for (; a != NULL; a = a->parent)
-		warnx(" ...inheriting from: %s", a->fn);
-}
 
 /*
  * Walk up the chain of certificates trying to match our AS number to
@@ -176,7 +168,6 @@ valid_cert(const char *fn, struct auth_tree *auths, const struct cert *cert)
 			continue;
 		warnx("%s: RFC 6487: uncovered AS: "
 		    "%u--%u", fn, min, max);
-		tracewarn(a);
 		return 0;
 	}
 
@@ -204,7 +195,6 @@ valid_cert(const char *fn, struct auth_tree *auths, const struct cert *cert)
 			    "(inherit)", fn);
 			break;
 		}
-		tracewarn(a);
 		return 0;
 	}
 
@@ -227,8 +217,7 @@ valid_roa(const char *fn, struct auth_tree *auths, struct roa *roa)
 	if (a == NULL)
 		return 0;
 
-	if ((roa->tal = strdup(a->tal)) == NULL)
-		err(1, NULL);
+	roa->talid = a->cert->talid;
 
 	for (i = 0; i < roa->ipsz; i++) {
 		if (valid_ip(a, roa->ips[i].afi, roa->ips[i].min,
@@ -238,11 +227,44 @@ valid_roa(const char *fn, struct auth_tree *auths, struct roa *roa)
 		    roa->ips[i].afi, buf, sizeof(buf));
 		warnx("%s: RFC 6482: uncovered IP: "
 		    "%s", fn, buf);
-		tracewarn(a);
 		return 0;
 	}
 
 	return 1;
+}
+
+/*
+ * Validate a filename listed on a Manifest.
+ * draft-ietf-sidrops-6486bis section 4.2.2
+ * Returns 1 if filename is valid, otherwise 0.
+ */
+int
+valid_filename(const char *fn)
+{
+	size_t			 sz;
+	const unsigned char	*c;
+
+	sz = strlen(fn);
+	if (sz < 5)
+		return 0;
+
+	for (c = fn; *c != '\0'; ++c)
+		if (!isalnum(*c) && *c != '-' && *c != '_' && *c != '.')
+			return 0;
+
+	if (strchr(fn, '.') != strrchr(fn, '.'))
+		return 0;
+
+	if (strcasecmp(fn + sz - 4, ".cer") == 0)
+		return 1;
+	if (strcasecmp(fn + sz - 4, ".crl") == 0)
+		return 1;
+	if (strcasecmp(fn + sz - 4, ".gbr") == 0)
+		return 1;
+	if (strcasecmp(fn + sz - 4, ".roa") == 0)
+		return 1;
+
+	return 0;
 }
 
 /*
@@ -287,6 +309,9 @@ valid_uri(const char *uri, size_t usz, const char *proto)
 {
 	size_t s;
 
+	if (usz > MAX_URI_LENGTH)
+		return 0;
+
 	for (s = 0; s < usz; s++)
 		if (!isalnum((unsigned char)uri[s]) &&
 		    !ispunct((unsigned char)uri[s]))
@@ -300,6 +325,30 @@ valid_uri(const char *uri, size_t usz, const char *proto)
 
 	/* do not allow files or directories to start with a '.' */
 	if (strstr(uri, "/.") != NULL)
+		return 0;
+
+	return 1;
+}
+
+/*
+ * Validate that a URI has the same host as the URI passed in proto.
+ * Returns 1 if valid, 0 otherwise.
+ */
+int
+valid_origin(const char *uri, const char *proto)
+{
+	const char *to;
+
+	/* extract end of host from proto URI */
+	to = strstr(proto, "://");
+	if (to == NULL)
+		return 0;
+	to += strlen("://");
+	if ((to = strchr(to, '/')) == NULL)
+		return 0;
+
+	/* compare hosts including the / for the start of the path section */
+	if (strncasecmp(uri, proto, to - proto + 1) != 0)
 		return 0;
 
 	return 1;

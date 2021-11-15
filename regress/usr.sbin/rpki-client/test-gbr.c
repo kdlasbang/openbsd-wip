@@ -1,4 +1,4 @@
-/*	$Id: test-gbr.c,v 1.3 2021/03/29 15:47:34 claudio Exp $ */
+/*	$Id: test-gbr.c,v 1.5 2021/10/26 16:59:54 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -30,23 +30,7 @@
 
 #include "extern.h"
 
-#include "test-common.c"
-
 int verbose;
-
-static void
-gbr_print(const struct gbr *p)
-{
-	char	 buf[128];
-	size_t	 i;
-
-	assert(p != NULL);
-
-	printf("Subject key identifier: %s\n", pretty_key_id(p->ski));
-	printf("Authority key identifier: %s\n", pretty_key_id(p->aki));
-	printf("Authority info access: %s\n", p->aia);
-	printf("vcard:\n%s", p->vcard);
-}
 
 int
 main(int argc, char *argv[])
@@ -55,6 +39,8 @@ main(int argc, char *argv[])
 	BIO		*bio_out = NULL;
 	X509		*xp = NULL;
 	struct gbr	*p;
+	unsigned char	*buf;
+	size_t		 len;
 
 
 	ERR_load_crypto_strings();
@@ -84,8 +70,11 @@ main(int argc, char *argv[])
 		errx(1, "argument missing");
 
 	for (i = 0; i < argc; i++) {
-		if ((p = gbr_parse(&xp, argv[i])) == NULL)
-			break;
+		buf = load_file(argv[1], &len);
+		if ((p = gbr_parse(&xp, argv[i], buf, len)) == NULL) {
+			free(buf);
+			continue;
+		}
 		if (verb)
 			gbr_print(p);
 		if (ppem) {
@@ -93,6 +82,7 @@ main(int argc, char *argv[])
 				errx(1,
 				    "PEM_write_bio_X509: unable to write cert");
 		}
+		free(buf);
 		gbr_free(p);
 		X509_free(xp);
 	}

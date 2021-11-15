@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.201 2021/10/14 13:19:01 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.205 2021/10/26 12:22:23 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -184,8 +184,10 @@ screen_write_initctx(struct screen_write_ctx *ctx, struct tty_ctx *ttyctx,
 	if (ctx->init_ctx_cb != NULL) {
 		ctx->init_ctx_cb(ctx, ttyctx);
 		if (ttyctx->palette != NULL) {
-			ttyctx->defaults.fg = ttyctx->palette->fg;
-			ttyctx->defaults.bg = ttyctx->palette->bg;
+			if (ttyctx->defaults.fg == 8)
+				ttyctx->defaults.fg = ttyctx->palette->fg;
+			if (ttyctx->defaults.bg == 8)
+				ttyctx->defaults.bg = ttyctx->palette->bg;
 		}
 	} else {
 		ttyctx->redraw_cb = screen_write_redraw_cb;
@@ -646,9 +648,7 @@ screen_write_menu(struct screen_write_ctx *ctx, struct menu *menu,
 	memcpy(&default_gc, &grid_default_cell, sizeof default_gc);
 
 	screen_write_box(ctx, menu->width + 4, menu->count + 2,
-	    BOX_LINES_DEFAULT, NULL);
-	screen_write_cursormove(ctx, cx + 2, cy, 0);
-	format_draw(ctx, &default_gc, menu->width, menu->title, NULL);
+	    BOX_LINES_DEFAULT, &default_gc, menu->title);
 
 	for (i = 0; i < menu->count; i++) {
 		name = menu->items[i].name;
@@ -665,10 +665,12 @@ screen_write_menu(struct screen_write_ctx *ctx, struct menu *menu,
 			if (*name == '-') {
 				name++;
 				default_gc.attr |= GRID_ATTR_DIM;
-				format_draw(ctx, gc, menu->width, name, NULL);
+				format_draw(ctx, gc, menu->width, name, NULL,
+				    0);
 				default_gc.attr &= ~GRID_ATTR_DIM;
 			} else
-				format_draw(ctx, gc, menu->width, name, NULL);
+				format_draw(ctx, gc, menu->width, name, NULL,
+				    gc == choice_gc);
 			gc = &default_gc;
 		}
 	}
@@ -714,7 +716,7 @@ screen_write_box_border_set(enum box_lines box_lines, int cell_type,
 /* Draw a box on screen. */
 void
 screen_write_box(struct screen_write_ctx *ctx, u_int nx, u_int ny,
-    enum box_lines l, const struct grid_cell *gcp)
+    enum box_lines lines, const struct grid_cell *gcp, const char *title)
 {
 	struct screen		*s = ctx->s;
 	struct grid_cell         gc;
@@ -727,30 +729,31 @@ screen_write_box(struct screen_write_ctx *ctx, u_int nx, u_int ny,
 		memcpy(&gc, gcp, sizeof gc);
 	else
 		memcpy(&gc, &grid_default_cell, sizeof gc);
+
 	gc.attr |= GRID_ATTR_CHARSET;
 	gc.flags |= GRID_FLAG_NOPALETTE;
 
 	/* Draw top border */
-	screen_write_box_border_set(l, CELL_TOPLEFT, &gc);
+	screen_write_box_border_set(lines, CELL_TOPLEFT, &gc);
 	screen_write_cell(ctx, &gc);
-	screen_write_box_border_set(l, CELL_LEFTRIGHT, &gc);
+	screen_write_box_border_set(lines, CELL_LEFTRIGHT, &gc);
 	for (i = 1; i < nx - 1; i++)
 		screen_write_cell(ctx, &gc);
-	screen_write_box_border_set(l, CELL_TOPRIGHT, &gc);
+	screen_write_box_border_set(lines, CELL_TOPRIGHT, &gc);
 	screen_write_cell(ctx, &gc);
 
 	/* Draw bottom border */
 	screen_write_set_cursor(ctx, cx, cy + ny - 1);
-	screen_write_box_border_set(l, CELL_BOTTOMLEFT, &gc);
+	screen_write_box_border_set(lines, CELL_BOTTOMLEFT, &gc);
 	screen_write_cell(ctx, &gc);
-	screen_write_box_border_set(l, CELL_LEFTRIGHT, &gc);
+	screen_write_box_border_set(lines, CELL_LEFTRIGHT, &gc);
 	for (i = 1; i < nx - 1; i++)
 		screen_write_cell(ctx, &gc);
-	screen_write_box_border_set(l, CELL_BOTTOMRIGHT, &gc);
+	screen_write_box_border_set(lines, CELL_BOTTOMRIGHT, &gc);
 	screen_write_cell(ctx, &gc);
 
 	/* Draw sides */
-	screen_write_box_border_set(l, CELL_TOPBOTTOM, &gc);
+	screen_write_box_border_set(lines, CELL_TOPBOTTOM, &gc);
 	for (i = 1; i < ny - 1; i++) {
 		/* left side */
 		screen_write_set_cursor(ctx, cx, cy + i);
@@ -758,6 +761,12 @@ screen_write_box(struct screen_write_ctx *ctx, u_int nx, u_int ny,
 		/* right side */
 		screen_write_set_cursor(ctx, cx + nx - 1, cy + i);
 		screen_write_cell(ctx, &gc);
+	}
+
+	if (title != NULL) {
+		gc.attr &= ~GRID_ATTR_CHARSET;
+		screen_write_cursormove(ctx, cx + 2, cy, 0);
+		format_draw(ctx, &gc, nx - 4, title, NULL, 0);
 	}
 
 	screen_write_set_cursor(ctx, cx, cy);

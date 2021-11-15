@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.1147 2021/10/14 13:19:01 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.1154 2021/11/03 13:37:17 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -530,6 +530,7 @@ enum tty_code_code {
 #define MODE_CRLF 0x4000
 #define MODE_KEXTENDED 0x8000
 #define MODE_CURSOR_VERY_VISIBLE 0x10000
+#define MODE_CURSOR_BLINKING_SET 0x20000
 
 #define ALL_MODES 0xffffff
 #define ALL_MOUSE_MODES (MODE_MOUSE_STANDARD|MODE_MOUSE_BUTTON|MODE_MOUSE_ALL)
@@ -779,12 +780,15 @@ struct screen {
 	u_int				 cy;	  /* cursor y */
 
 	enum screen_cursor_style	 cstyle;  /* cursor style */
-	char				*ccolour; /* cursor colour */
+	enum screen_cursor_style	 default_cstyle;
+	int				 ccolour; /* cursor colour */
+	int				 default_ccolour;
 
 	u_int				 rupper;  /* scroll region top */
 	u_int				 rlower;  /* scroll region bottom */
 
 	int				 mode;
+	int				 default_mode;
 
 	u_int				 saved_cx;
 	u_int				 saved_cy;
@@ -1276,7 +1280,7 @@ struct tty {
 	u_int		 cx;
 	u_int		 cy;
 	enum screen_cursor_style cstyle;
-	char		*ccolour;
+	int		 ccolour;
 
 	int		 oflag;
 	u_int		 oox;
@@ -1710,6 +1714,9 @@ struct client {
 	(CLIENT_DEAD|		\
 	 CLIENT_SUSPENDED|	\
 	 CLIENT_EXIT)
+#define CLIENT_NODETACHFLAGS 	\
+	(CLIENT_DEAD|		\
+	 CLIENT_EXIT)
 #define CLIENT_NOSIZEFLAGS	\
 	(CLIENT_DEAD|		\
 	 CLIENT_SUSPENDED|	\
@@ -2032,7 +2039,7 @@ char		*format_grid_line(struct grid *, u_int);
 /* format-draw.c */
 void		 format_draw(struct screen_write_ctx *,
 		     const struct grid_cell *, u_int, const char *,
-		     struct style_ranges *);
+		     struct style_ranges *, int);
 u_int		 format_width(const char *);
 char		*format_trim_left(const char *, u_int);
 char		*format_trim_right(const char *, u_int);
@@ -2616,6 +2623,7 @@ int	 input_key_get_mouse(struct screen *, struct mouse_event *, u_int,
 int	 colour_find_rgb(u_char, u_char, u_char);
 int	 colour_join_rgb(u_char, u_char, u_char);
 void	 colour_split_rgb(int, u_char *, u_char *, u_char *);
+int	 colour_force_rgb(int);
 const char *colour_tostring(int);
 int	 colour_fromstring(const char *s);
 int	 colour_256toRGB(int);
@@ -2737,7 +2745,7 @@ void	 screen_write_vline(struct screen_write_ctx *, u_int, int, int);
 void	 screen_write_menu(struct screen_write_ctx *, struct menu *, int,
 	     const struct grid_cell *);
 void	 screen_write_box(struct screen_write_ctx *, u_int, u_int, int,
-	     const struct grid_cell *);
+	     const struct grid_cell *, const char *);
 void	 screen_write_preview(struct screen_write_ctx *, struct screen *, u_int,
 	     u_int);
 void	 screen_write_backspace(struct screen_write_ctx *);
@@ -2788,8 +2796,8 @@ void	 screen_init(struct screen *, u_int, u_int, u_int);
 void	 screen_reinit(struct screen *);
 void	 screen_free(struct screen *);
 void	 screen_reset_tabs(struct screen *);
-void	 screen_set_cursor_style(struct screen *, u_int);
-void	 screen_set_cursor_colour(struct screen *, const char *);
+void	 screen_set_cursor_style(u_int, enum screen_cursor_style *, int *);
+void	 screen_set_cursor_colour(struct screen *, int);
 int	 screen_set_title(struct screen *, const char *);
 void	 screen_set_path(struct screen *, const char *);
 void	 screen_push_title(struct screen *);
@@ -3154,7 +3162,8 @@ typedef void (*popup_close_cb)(int, void *);
 typedef void (*popup_finish_edit_cb)(char *, size_t, void *);
 int		 popup_display(int, int, struct cmdq_item *, u_int, u_int,
 		    u_int, u_int, struct environ *, const char *, int, char **,
-		    const char *, struct client *, struct session *,
+		    const char *, const char *, struct client *,
+		    struct session *, const char *, const char *,
 		    popup_close_cb, void *);
 int		 popup_editor(struct client *, const char *, size_t,
 		    popup_finish_edit_cb, void *);

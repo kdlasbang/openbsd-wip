@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_vnode.c,v 1.117 2021/10/19 06:26:09 semarie Exp $	*/
+/*	$OpenBSD: uvm_vnode.c,v 1.119 2021/10/23 14:42:08 mpi Exp $	*/
 /*	$NetBSD: uvm_vnode.c,v 1.36 2000/11/24 20:34:01 chs Exp $	*/
 
 /*
@@ -229,7 +229,8 @@ uvn_attach(struct vnode *vp, vm_prot_t accessprot)
 #endif
 
 	/* now set up the uvn. */
-	uvm_obj_init(&uvn->u_obj, &uvm_vnodeops, 1);
+	KASSERT(uvn->u_obj.uo_refs == 0);
+	uvn->u_obj.uo_refs++;
 	oldflags = uvn->u_flags;
 	uvn->u_flags = UVM_VNODE_VALID|UVM_VNODE_CANPERSIST;
 	uvn->u_nio = 0;
@@ -1328,7 +1329,7 @@ uvm_vnp_uncache(struct vnode *vp)
 	 * carry over sanity check from old vnode pager: the vnode should
 	 * be VOP_LOCK'd, and we confirm it here.
 	 */
-	if ((vp->v_op->vop_islocked != nullop) && !VOP_ISLOCKED(vp))
+	if ((vp->v_flag & VLOCKSWORK) && !VOP_ISLOCKED(vp))
 		panic("uvm_vnp_uncache: vnode not locked!");
 #endif
 

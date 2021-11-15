@@ -1,4 +1,4 @@
-/* $OpenBSD: menu.c,v 1.39 2021/10/18 09:48:35 nicm Exp $ */
+/* $OpenBSD: menu.c,v 1.41 2021/11/11 09:22:33 nicm Exp $ */
 
 /*
  * Copyright (c) 2019 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -55,10 +55,11 @@ menu_add_item(struct menu *menu, const struct menu_item *item,
     struct cmdq_item *qitem, struct client *c, struct cmd_find_state *fs)
 {
 	struct menu_item	*new_item;
-	const char		*key, *cmd;
+	const char		*key = NULL, *cmd, *suffix = "";
 	char			*s, *name;
-	u_int			 width;
+	u_int			 width, max_width;
 	int			 line;
+	size_t			 keylen, slen;
 
 	line = (item == NULL || item->name == NULL || *item->name == '\0');
 	if (line && menu->count == 0)
@@ -80,11 +81,34 @@ menu_add_item(struct menu *menu, const struct menu_item *item,
 		menu->count--;
 		return;
 	}
+	max_width = c->tty.sx - 4;
+
+	slen = strlen(s);
 	if (*s != '-' && item->key != KEYC_UNKNOWN && item->key != KEYC_NONE) {
 		key = key_string_lookup_key(item->key, 0);
-		xasprintf(&name, "%s#[default] #[align=right](%s)", s, key);
-	} else
-		xasprintf(&name, "%s", s);
+		keylen = strlen(key) + 3; /* 3 = space and two brackets */
+
+		/*
+		 * Add the key if it is shorter than a quarter of the available
+		 * space or there is space for the entire item text and the
+		 * key.
+		 */
+		if (keylen <= max_width / 4)
+			max_width -= keylen;
+		else if (keylen >= max_width || slen >= max_width - keylen)
+			key = NULL;
+	}
+
+	if (slen > max_width) {
+		max_width--;
+		suffix = ">";
+	}
+	if (key != NULL)
+		xasprintf(&name, "%.*s%s#[default] #[align=right](%s)",
+		    (int)max_width, s, suffix, key);
+	else
+		xasprintf(&name, "%.*s%s", (int)max_width, s, suffix);
+
 	new_item->name = name;
 	free(s);
 

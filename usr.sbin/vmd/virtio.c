@@ -46,7 +46,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mount.h>
-
+#include <fcntl.h>
 #include "atomicio.h"
 #include "pci.h"
 #include "vioscsi.h"
@@ -2470,6 +2470,23 @@ vmmfs_mkdir(void)
 }
 
 void
+vmmfs_unlink(void)
+{
+    struct vm_fsop_unlink *op;
+    char path[256];
+  
+    int err;
+    op = (struct vm_fsop_unlink *)&vmmfs_op.payload;
+
+    log_debug("%s: requested path: %s", __func__, op->name);
+    snprintf(path, 256, "/export/vmmfs/%s", op->name);
+  
+    err=unlink(path);
+    op->err=err;
+  
+}
+
+void
 vmmfs_rmdir(void)
 {
     struct vm_fsop_rmdir *op;
@@ -2620,7 +2637,7 @@ vmmfs_open(void)
     }
 }
 
-
+ 
 void
 vmmfs_link(void)
 {
@@ -2639,7 +2656,7 @@ vmmfs_link(void)
 	if (err) {
 		log_warn("%s: link failed", __func__);
 	}
-}
+} 
 
 void
 vmmfs_finish_op(void)
@@ -2686,11 +2703,13 @@ vmmfs_dispatch(void)
         case VMMFSOP_OPEN:
             vmmfs_open();
             break;
-
-		case VMMFSOP_LINK:
-			vmmfs_link();
-			break;
-	 
+      case VMMFSOP_UNLINK:
+	        vmmfs_unlink();
+	        break; 
+		  case VMMFSOP_LINK:
+			    vmmfs_link();
+			    break;
+	  
 	}
 	vmmfs_finish_op();
 	log_debug("%s: exits\n", __func__);

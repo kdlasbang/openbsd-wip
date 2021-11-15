@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.383 2020/10/14 19:30:37 naddy Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.385 2021/11/11 12:49:53 sashan Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1425,6 +1425,7 @@ pfctl_load_ruleset(struct pfctl *pf, char *path, struct pf_ruleset *rs,
 	struct pf_rule *r;
 	int		error, len = strlen(path);
 	int		brace = 0;
+	unsigned int	rno = 0;
 
 	pf->anchor = rs->anchor;
 
@@ -1454,6 +1455,8 @@ pfctl_load_ruleset(struct pfctl *pf, char *path, struct pf_ruleset *rs,
 
 	while ((r = TAILQ_FIRST(rs->rules.active.ptr)) != NULL) {
 		TAILQ_REMOVE(rs->rules.active.ptr, r, entries);
+		pfctl_expand_label_nr(r, rno);
+		rno++;
 		if ((error = pfctl_load_rule(pf, path, r, depth)))
 			goto error;
 		if (r->anchor) {
@@ -2456,6 +2459,7 @@ pfctl_reset(int dev, int opts)
 	pfctl_clear_interface_flags(dev, opts);
 }
 
+#ifndef	REGRESS_NOMAIN
 int
 main(int argc, char *argv[])
 {
@@ -2886,6 +2890,7 @@ main(int argc, char *argv[])
 
 	exit(exit_val);
 }
+#endif	/* REGRESS_NOMAIN */
 
 char *
 pf_strerror(int errnum)
