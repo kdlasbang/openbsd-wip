@@ -42,6 +42,7 @@
 #include <unistd.h>
 
 #include <fcntl.h>
+#include <dirent.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -2636,7 +2637,6 @@ vmmfs_open(void)
         log_warn("%s: open() returned error code=%d\n", __func__, err);
     }
 }
-
  
 void
 vmmfs_link(void)
@@ -2657,6 +2657,32 @@ vmmfs_link(void)
 		log_warn("%s: link failed", __func__);
 	}
 } 
+
+void
+vmmfs_opendir(void)
+{       
+        struct vm_fsop_opendir *op;
+        char path[256];
+        int err;
+        //int res;
+
+        op = (struct vm_fsop_opendir *)&vmmfs_op.payload;
+
+        log_debug("%s: requested path: %s", __func__,
+            op->name);
+
+        /* XXX this is not right */
+        snprintf(path, 256, "/export/vmmfs/%s", op->name);
+//      struct xmp_dirp *d = malloc(sizeof(struct xmp_dirp));
+
+        err = opendir(path);
+        op->err = err;
+//      fi->fh=fd;
+        if (err) {
+                log_warn("%s: open failed", __func__);
+        }
+}
+
 
 void
 vmmfs_finish_op(void)
@@ -2685,10 +2711,12 @@ vmmfs_dispatch(void)
 
         case VMMFSOP_RMDIR:
             vmmfs_rmdir();
-
+          break;
+      
         case VMMFSOP_CREATE:
             vmmfs_create();
-
+          break;
+      
         case VMMFSOP_MKNOD:
             vmmfs_mknod(); 
             break;
@@ -2706,10 +2734,15 @@ vmmfs_dispatch(void)
       case VMMFSOP_UNLINK:
 	        vmmfs_unlink();
 	        break; 
-		  case VMMFSOP_LINK:
+      
+      case VMMFSOP_OPENDIR:
+            vmmfs_opendir();
+            break;
+      
+      case VMMFSOP_LINK:
 			    vmmfs_link();
 			    break;
-	  
+      
 	}
 	vmmfs_finish_op();
 	log_debug("%s: exits\n", __func__);

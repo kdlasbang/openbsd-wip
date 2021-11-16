@@ -456,9 +456,28 @@ virtiofsclient_fsync(const char *path, int datasync, struct fuse_file_info *fi)
 int
 virtiofsclient_opendir(const char *path, struct fuse_file_info *fi)
 {
-	warnx("unimplemented function %s for path %s", __func__, path);
+	struct vm_fsop_opendir od, *retbuf;
+        struct vm_fsop op;
+        int ret;
 
-	return -EIO;
+        printf("%s: called\n", __func__);
+
+        op.opcode = VMMFSOP_OPENDIR;
+        op.seq = ++curseq;
+        strlcpy((char *)&od.name, path, 256);
+        memcpy(&op.payload, &od, sizeof(od));
+
+        ret = virtiofsclient_send_fuse_msg(&op);
+        if (!ret) {
+                retbuf = (struct vm_fsop_opendir *)&op.payload;
+                memcpy(fi, &retbuf->fi, sizeof(*fi));
+                return retbuf->err;
+        }
+
+        return ret;
+//	warnx("unimplemented function %s for path %s", __func__, path);
+
+//	return -EIO;
 }
 
 int
