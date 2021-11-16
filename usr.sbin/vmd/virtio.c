@@ -2637,6 +2637,26 @@ vmmfs_open(void)
         log_warn("%s: open() returned error code=%d\n", __func__, err);
     }
 }
+ 
+void
+vmmfs_link(void)
+{
+	struct vm_fsop_link *op;
+	char from[256];
+	char to[256];
+	int err;
+	
+	op = (struct vm_fsop_link *)&vmmfs_op.payload;
+
+	log_debug("%s: requested path from=%s to=%s", __func__,
+	    op->from,op->to);
+	err = link(from, to);
+	op->err = err;
+
+	if (err) {
+		log_warn("%s: link failed", __func__);
+	}
+} 
 
 void
 vmmfs_opendir(void)
@@ -2663,6 +2683,7 @@ vmmfs_opendir(void)
         }
 }
 
+
 void
 vmmfs_finish_op(void)
 {
@@ -2678,40 +2699,50 @@ vmmfs_dispatch(void)
 	log_debug("%s: opcode %d", __func__, vmmfs_op.opcode);
 
 	switch (vmmfs_op.opcode) {
+	    case VMMFSOP_GETATTR:
+		    vmmfs_getattr();
+		    break;
+	    case VMMFSOP_STATFS:
+		    vmmfs_statfs();
+		    break;
+    	case VMMFSOP_MKDIR:
+	    	vmmfs_mkdir();
+	    	break;
 
-	   case VMMFSOP_GETATTR:
-		vmmfs_getattr();
-		break;
-       	   case VMMFSOP_STATFS:
-		vmmfs_statfs();
-		break;
-	   case VMMFSOP_MKDIR:
-		vmmfs_mkdir();
-		break;
-	   case VMMFSOP_UNLINK:
+        case VMMFSOP_RMDIR:
+            vmmfs_rmdir();
+          break;
+      
+        case VMMFSOP_CREATE:
+            vmmfs_create();
+          break;
+      
+        case VMMFSOP_MKNOD:
+            vmmfs_mknod(); 
+            break;
+
+        case VMMFSOP_RENAME:
+            vmmfs_rename();
+            break;
+
+        case VMMFSOP_TRUNCATE:
+            vmmfs_truncate();
+            break;
+        case VMMFSOP_OPEN:
+            vmmfs_open();
+            break;
+      case VMMFSOP_UNLINK:
 	        vmmfs_unlink();
 	        break; 
-           case VMMFSOP_RMDIR:
-	        vmmfs_rmdir();
-	        break;
-	   case VMMFSOP_CREATE:
-                vmmfs_create();
-	        break;
-           case VMMFSOP_MKNOD:
-                vmmfs_mknod(); 
-                break;
-           case VMMFSOP_RENAME:
-                vmmfs_rename();
-                break;
-           case VMMFSOP_TRUNCATE:
-                vmmfs_truncate();
-                break;
-           case VMMFSOP_OPEN:
-                vmmfs_open();
-                break;
-	   case VMMFSOP_OPENDIR:
-                vmmfs_opendir();
-                break;
+      
+      case VMMFSOP_OPENDIR:
+            vmmfs_opendir();
+            break;
+      
+      case VMMFSOP_LINK:
+			    vmmfs_link();
+			    break;
+      
 	}
 	vmmfs_finish_op();
 	log_debug("%s: exits\n", __func__);
