@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_event.c,v 1.171 2021/11/12 04:34:22 visa Exp $	*/
+/*	$OpenBSD: kern_event.c,v 1.173 2021/11/15 15:48:54 visa Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -160,7 +160,7 @@ const struct filterops proc_filtops = {
 };
 
 const struct filterops file_filtops = {
-	.f_flags	= FILTEROP_ISFD,
+	.f_flags	= FILTEROP_ISFD | FILTEROP_MPSAFE,
 	.f_attach	= filt_fileattach,
 	.f_detach	= NULL,
 	.f_event	= NULL,
@@ -813,6 +813,9 @@ kqpoll_done(unsigned int num)
 	KASSERT(p->p_kq_serial + num >= p->p_kq_serial);
 
 	p->p_kq_serial += num;
+
+	/* XXX Work around a race condition. */
+	kqueue_purge(p, p->p_kq);
 }
 
 void

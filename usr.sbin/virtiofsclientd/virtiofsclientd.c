@@ -278,10 +278,27 @@ virtiofsclient_rename(const char *from, const char *to)
 int
 virtiofsclient_link(const char *from, const char *to)
 {
-	warnx("unimplemented function %s for from=%s to=%s", __func__,
-	    from, to);
+	
+	struct vm_fsop_link lk, *retbuf;
+	struct vm_fsop op;
+	int ret;
 
-	return -EIO;
+	printf("%s: called\n", __func__);
+
+	op.opcode = VMMFSOP_LINK;
+	op.seq = ++curseq;
+	strlcpy((char *)&lk.from, from, 256);
+	strlcpy((char *)&lk.to, to, 256);
+	memcpy(&op.payload, &lk, sizeof(lk));
+
+	ret = virtiofsclient_send_fuse_msg(&op);
+	if (!ret) {
+		retbuf = (struct vm_fsop_link *)&op.payload;
+
+		return retbuf->err;
+	}
+
+	return ret;
 }
 
 int

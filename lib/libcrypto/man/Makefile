@@ -1,23 +1,29 @@
-# $OpenBSD: Makefile,v 1.211 2021/11/11 12:06:25 schwarze Exp $
+# $OpenBSD: Makefile,v 1.220 2021/11/22 16:19:54 schwarze Exp $
 
 .include <bsd.own.mk>
 
 MAN=	\
 	ACCESS_DESCRIPTION_new.3 \
 	AES_encrypt.3 \
+	ASN1_BIT_STRING_num_asc.3 \
+	ASN1_BIT_STRING_set.3 \
 	ASN1_INTEGER_get.3 \
+	ASN1_NULL_new.3 \
 	ASN1_OBJECT_new.3 \
+	ASN1_PRINTABLE_type.3 \
 	ASN1_STRING_TABLE_add.3 \
 	ASN1_STRING_length.3 \
 	ASN1_STRING_new.3 \
 	ASN1_STRING_print_ex.3 \
 	ASN1_TIME_set.3 \
 	ASN1_TYPE_get.3 \
+	ASN1_UNIVERSALSTRING_to_string.3 \
 	ASN1_generate_nconf.3 \
 	ASN1_get_object.3 \
 	ASN1_item_d2i.3 \
 	ASN1_item_digest.3 \
 	ASN1_item_new.3 \
+	ASN1_item_pack.3 \
 	ASN1_item_sign.3 \
 	ASN1_item_verify.3 \
 	ASN1_mbstring_copy.3 \
@@ -318,6 +324,7 @@ MAN=	\
 	X509_STORE_CTX_get_ex_new_index.3 \
 	X509_STORE_CTX_new.3 \
 	X509_STORE_CTX_set_flags.3 \
+	X509_STORE_CTX_set_verify.3 \
 	X509_STORE_CTX_set_verify_cb.3 \
 	X509_STORE_get_by_subject.3 \
 	X509_STORE_load_locations.3 \
@@ -361,7 +368,9 @@ MAN=	\
 	X509at_add1_attr.3 \
 	X509at_get_attr.3 \
 	X509v3_get_ext_by_NID.3 \
+	a2d_ASN1_OBJECT.3 \
 	crypto.3 \
+	d2i_ASN1_BOOLEAN.3 \
 	d2i_ASN1_NULL.3 \
 	d2i_ASN1_OBJECT.3 \
 	d2i_ASN1_OCTET_STRING.3 \
@@ -398,6 +407,7 @@ MAN=	\
 	des_read_pw.3 \
 	evp.3 \
 	get_rfc3526_prime_8192.3 \
+	i2a_ASN1_STRING.3 \
 	i2d_CMS_bio_stream.3 \
 	i2d_PKCS7_bio_stream.3 \
 	lh_new.3 \

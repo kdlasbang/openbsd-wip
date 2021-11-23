@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.377 2021/10/12 11:20:32 landry Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.382 2021/11/22 11:00:50 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -550,7 +550,8 @@ void	iwm_attach_hook(struct device *);
 void	iwm_attach(struct device *, struct device *, void *);
 void	iwm_init_task(void *);
 int	iwm_activate(struct device *, int);
-int	iwm_resume(struct iwm_softc *);
+void	iwm_resume(struct iwm_softc *);
+int	iwm_wakeup(struct iwm_softc *);
 
 #if NBPFILTER > 0
 void	iwm_radiotap_attach(struct iwm_softc *);
@@ -1554,10 +1555,7 @@ int
 iwm_check_rfkill(struct iwm_softc *sc)
 {
 	uint32_t v;
-	int s;
 	int rv;
-
-	s = splnet();
 
 	/*
 	 * "documentation" is not really helpful here:
@@ -1574,7 +1572,6 @@ iwm_check_rfkill(struct iwm_softc *sc)
 		sc->sc_flags &= ~IWM_FLAG_RFKILL;
 	}
 
-	splx(s);
 	return rv;
 }
 
@@ -1622,8 +1619,6 @@ iwm_restore_interrupts(struct iwm_softc *sc)
 void
 iwm_disable_interrupts(struct iwm_softc *sc)
 {
-	int s = splnet();
-
 	if (!sc->sc_msix) {
 		IWM_WRITE(sc, IWM_CSR_INT_MASK, 0);
 
@@ -1636,8 +1631,6 @@ iwm_disable_interrupts(struct iwm_softc *sc)
 		IWM_WRITE(sc, IWM_CSR_MSIX_HW_INT_MASK_AD,
 		    sc->sc_hw_init_mask);
 	}
-
-	splx(s);
 }
 
 void
@@ -5121,6 +5114,9 @@ iwm_rx_reorder(struct iwm_softc *sc, struct mbuf *m, int chanidx,
 	if (rxba == NULL || tid != rxba->tid || rxba->sta_id != IWM_STATION_ID)
 		return 0;
 
+	if (rxba->timeout != 0)
+		getmicrouptime(&rxba->last_rx);
+
 	/* Bypass A-MPDU re-ordering in net80211. */
 	rxi->rxi_flags |= IEEE80211_RXI_AMPDU_DONE;
 
@@ -7780,9 +7776,15 @@ iwm_umac_scan(struct iwm_softc *sc, int bgscan)
 			IWM_UMAC_SCAN_GEN_FLAGS2_ALLOW_CHNL_REORDER;
 	}
 
-	/* Check if we're doing an active directed scan. */
-	if (ic->ic_des_esslen != 0) {
-		if (isset(sc->sc_ucode_api, IWM_UCODE_TLV_API_SCAN_EXT_CHAN_VER)) {
+	/*
+	 * Check if we're doing an active directed scan.
+	 * 9k devices may randomly lock up (no interrupts) after association
+	 * following active scans. Use passive scan only for now on 9k.
+	 */
+	if (sc->sc_device_family != IWM_DEVICE_FAMILY_9000 &&
+	    ic->ic_des_esslen != 0) {
+		if (isset(sc->sc_ucode_api,
+		    IWM_UCODE_TLV_API_SCAN_EXT_CHAN_VER)) {
 			tail->direct_scan[0].id = IEEE80211_ELEMID_SSID;
 			tail->direct_scan[0].len = ic->ic_des_esslen;
 			memcpy(tail->direct_scan[0].ssid, ic->ic_des_essid,
@@ -8356,7 +8358,7 @@ iwm_phy_ctxt_update(struct iwm_softc *sc, struct iwm_phy_ctxt *phyctxt,
 		err = iwm_phy_ctxt_cmd(sc, phyctxt, chains_static,
 		    chains_dynamic, IWM_FW_CTXT_ACTION_ADD, apply_time, sco);
 		if (err) {
-			printf("%s: could not remove PHY context "
+			printf("%s: could not add PHY context "
 			    "(error %d)\n", DEVNAME(sc), err);
 			return err;
 		}
@@ -9679,17 +9681,7 @@ int
 iwm_init_hw(struct iwm_softc *sc)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
-	int err, i, ac, qid;
-
-	err = iwm_preinit(sc);
-	if (err)
-		return err;
-
-	err = iwm_start_hw(sc);
-	if (err) {
-		printf("%s: could not initialize hardware\n", DEVNAME(sc));
-		return err;
-	}
+	int err, i, ac, qid, s;
 
 	err = iwm_run_init_mvm_ucode(sc, 0);
 	if (err)
@@ -9704,14 +9696,18 @@ iwm_init_hw(struct iwm_softc *sc)
 	}
 
 	/* Restart, this time with the regular firmware */
+	s = splnet();
 	err = iwm_load_ucode_wait_alive(sc, IWM_UCODE_TYPE_REGULAR);
 	if (err) {
 		printf("%s: could not load firmware\n", DEVNAME(sc));
-		goto err;
+		splx(s);
+		return err;
 	}
 
-	if (!iwm_nic_lock(sc))
+	if (!iwm_nic_lock(sc)) {
+		splx(s);
 		return EBUSY;
+	}
 
 	err = iwm_send_tx_ant_cfg(sc, iwm_fw_valid_tx_ant(sc));
 	if (err) {
@@ -9738,20 +9734,20 @@ iwm_init_hw(struct iwm_softc *sc)
 	if (err) {
 		printf("%s: could not init bt coex (error %d)\n",
 		    DEVNAME(sc), err);
-		return err;
+		goto err;
 	}
 
 	if (isset(sc->sc_enabled_capa,
 	    IWM_UCODE_TLV_CAPA_SOC_LATENCY_SUPPORT)) {
 		err = iwm_send_soc_conf(sc);
 		if (err)
-			return err;
+			goto err;
 	}
 
 	if (isset(sc->sc_enabled_capa, IWM_UCODE_TLV_CAPA_DQA_SUPPORT)) {
 		err = iwm_send_dqa_cmd(sc);
 		if (err)
-			return err;
+			goto err;
 	}
 
 	/* Add auxiliary station for scanning */
@@ -9859,6 +9855,7 @@ iwm_init_hw(struct iwm_softc *sc)
 
 err:
 	iwm_nic_unlock(sc);
+	splx(s);
 	return err;
 }
 
@@ -9901,6 +9898,16 @@ iwm_init(struct ifnet *ifp)
 
 	KASSERT(sc->task_refs.refs == 0);
 	refcnt_init(&sc->task_refs);
+
+	err = iwm_preinit(sc);
+	if (err)
+		return err;
+
+	err = iwm_start_hw(sc);
+	if (err) {
+		printf("%s: could not initialize hardware\n", DEVNAME(sc));
+		return err;
+	}
 
 	err = iwm_init_hw(sc);
 	if (err) {
@@ -10069,6 +10076,7 @@ iwm_stop(struct ifnet *ifp)
 	sc->ba_tx.stop_tidmask = 0;
 
 	sc->sc_newstate(ic, IEEE80211_S_INIT, -1);
+	sc->ns_nstate = IEEE80211_S_INIT;
 
 	timeout_del(&sc->sc_calib_to); /* XXX refcount? */
 	for (i = 0; i < nitems(sc->sc_rxba_data); i++) {
@@ -11180,7 +11188,10 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	/* Clear device-specific "PCI retry timeout" register (41h). */
+	/*
+	 * We disable the RETRY_TIMEOUT register (0x41) to keep
+	 * PCI Tx retries from interfering with C3 CPU state.
+	 */
 	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, 0x40);
 	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
 
@@ -11576,12 +11587,15 @@ iwm_init_task(void *arg1)
 	splx(s);
 }
 
-int
+void
 iwm_resume(struct iwm_softc *sc)
 {
 	pcireg_t reg;
 
-	/* Clear device-specific "PCI retry timeout" register (41h). */
+	/*
+	 * We disable the RETRY_TIMEOUT register (0x41) to keep
+	 * PCI Tx retries from interfering with C3 CPU state.
+	 */
 	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, 0x40);
 	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
 
@@ -11596,8 +11610,34 @@ iwm_resume(struct iwm_softc *sc)
 	}
 
 	iwm_disable_interrupts(sc);
+}
 
-	return iwm_start_hw(sc);
+int
+iwm_wakeup(struct iwm_softc *sc)
+{
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct ifnet *ifp = &sc->sc_ic.ic_if;
+	int err;
+
+	refcnt_init(&sc->task_refs);
+
+	err = iwm_start_hw(sc);
+	if (err)
+		return err;
+
+	err = iwm_init_hw(sc);
+	if (err)
+		return err;
+
+	ifq_clr_oactive(&ifp->if_snd);
+	ifp->if_flags |= IFF_RUNNING;
+
+	if (ic->ic_opmode == IEEE80211_M_MONITOR)
+		ieee80211_new_state(ic, IEEE80211_S_RUN, -1);
+	else
+		ieee80211_begin_scan(ifp);
+
+	return 0;
 }
 
 int
@@ -11616,15 +11656,15 @@ iwm_activate(struct device *self, int act)
 		}
 		break;
 	case DVACT_RESUME:
-		err = iwm_resume(sc);
-		if (err)
-			printf("%s: could not initialize hardware\n",
-			    DEVNAME(sc));
+		iwm_resume(sc);
 		break;
 	case DVACT_WAKEUP:
-		/* Hardware should be up at this point. */
-		if (iwm_set_hw_ready(sc))
-			task_add(systq, &sc->init_task);
+		if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP) {
+			err = iwm_wakeup(sc);
+			if (err)
+				printf("%s: could not initialize hardware\n",
+				    DEVNAME(sc));
+		}
 		break;
 	}
 
