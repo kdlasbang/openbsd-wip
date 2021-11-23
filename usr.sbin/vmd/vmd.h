@@ -106,7 +106,8 @@
 #define VMMFSOP_OPEN 205
 #define VMMFSOP_UNLINK 4
 #define VMMFSOP_OPENDIR 114
-
+#define VMMFSOP_ACCESS 115
+#define VMMFSOP_UTIME 116
 
 #define VMMFSOP_LINK 444
 
@@ -236,6 +237,27 @@ struct vm_fsop_opendir {
         char                    name[256];
         struct fuse_file_info   fi;
 
+
+        /* Return value (errno) */
+        int                     err;
+};
+
+struct vm_fsop_access {
+        /* Input */
+        char                    name[256];
+        int                     amode;
+
+        /* No output */
+
+        /* Return value (errno) */
+        int                     err;
+};
+
+struct vm_fsop_utime {
+        /* Input */
+        char                    name[256];
+        struct utimbuf          timep;
+        /* No output */
 
         /* Return value (errno) */
         int                     err;
