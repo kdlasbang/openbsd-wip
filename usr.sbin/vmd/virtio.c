@@ -2681,6 +2681,54 @@ vmmfs_opendir(void)
         }
 }
 
+void
+vmmfs_access(void)
+{       
+        struct vm_fsop_access *op;
+        char path[256];
+        int amode;
+        int err;
+        
+        op = (struct vm_fsop_access *)&vmmfs_op.payload;
+        
+        log_debug("%s: requested path: %s", __func__,
+            op->name);
+        
+        /* XXX this is not right */
+        snprintf(path, 256, "/export/vmmfs/%s", op->name);
+        
+        amode = op->amode; 
+        err = access(path, amode);
+        op->err = err;
+        
+        if (err) {
+                log_warn("%s: access failed", __func__);
+        }
+}
+
+void
+vmmfs_utime(void)
+{       
+        struct vm_fsop_utime *op;
+        char file[256];
+        int err;
+        
+        op = (struct vm_fsop_utime *)&vmmfs_op.payload;
+        
+        log_debug("%s: requested file: %s", __func__,
+            op->name);
+        
+        /* XXX this is not right */
+        snprintf(file, 256, "/export/vmmfs/%s", op->name);
+        
+        err = utime(file,&op->timep);
+        op->err = err;
+        
+        if (err) {
+                log_warn("%s: utime failed", __func__);
+        }
+}
+
 
 void
 vmmfs_finish_op(void)
@@ -2740,7 +2788,14 @@ vmmfs_dispatch(void)
       case VMMFSOP_LINK:
 			    vmmfs_link();
 			    break;
-
+	case VMMFSOP_ACCESS:
+            vmmfs_access();
+            break;
+			
+	case VMMFSOP_UTIME:
+            vmmfs_utime();
+            break;
+			
 	}
 	vmmfs_finish_op();
 	log_debug("%s: exits\n", __func__);
