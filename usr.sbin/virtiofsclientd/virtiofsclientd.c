@@ -356,6 +356,7 @@ virtiofsclient_utime(const char *file, struct utimbuf *timep)
         op.opcode = VMMFSOP_UTIME;
         op.seq = ++curseq;
         strlcpy((char *)&ut.name, file, 256);
+        ut.timep = *timep;
         memcpy(&op.payload, &ut, sizeof(ut));
 
         ret = virtiofsclient_send_fuse_msg(&op);
